@@ -419,6 +419,36 @@ IDN-001's acceptance criterion "Login mapping is deterministic and audited" is s
 
 `packages/db` and `packages/domain/src/identity` are the first packages in this repository with real, non-placeholder implementations. Future domain areas (commerce, access, programs, ...) are expected to follow the same shape: pure decision logic in `packages/domain`, driver-agnostic persistence in `packages/db`, `*.integration.test.ts` for real-engine-backed tests. `createDatabaseClient` (the production postgres.js connection factory) has not yet been exercised against a live database in any session - only proven correct by type-checking and by drizzle-kit's own separate connection logic in the CI migration step. The first task that wires a real HTTP route or worker job to the database should treat that as new ground, not assume this factory has been runtime-proven beyond what is stated here.
 
+## ADR-047 — ENT-001: event-sourced immutable grants, narrower-than-contract schema scope, deterministic checksum
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** ENT-001 (implement immutable access grants and versioned entitlement policies).
+
+### Grant status is derived, never stored - event-sourced rather than mutable-status
+
+`dok 05 §8.2` and `CLAUDE.md`'s canonical vocabulary both name the same six grant states (`scheduled`, `active`, `suspended`, `expired`, `revoked`, `cancelled`), but `contracts/drizzle-schema.ts`'s Gate 3 review artifact models them as a mutable `status` column. ENT-001 instead makes `access_grants` immutable after insert (no `status` column at all) and adds a separate append-only `grant_events` log (`activated | suspended | reinstated | revoked | cancelled`); `packages/domain/src/access/grant-status.ts#deriveGrantStatus` is a pure function of `(grant facts, event log, now)` that computes the status at read time. This is the same "compute, don't store" pattern IDN-001 already used for session expiry, and it is what the founder instruction requires directly: "Access grant harus immutable; perubahan dibuat sebagai grant/revocation/event baru, bukan update diam-diam." A mutable status column would make that instruction structurally unenforceable - nothing would stop a future caller from `UPDATE`-ing it in place. `deriveGrantStatus` evaluates revocation and cancellation first (terminal, independent of timing), then the most recent suspend/reinstate event, then the validity window, using the same inclusive-boundary rule as IDN-001's session expiry (`validTo <= now` is expired, not `< now`).
+
+### Schema scope: narrower than the Gate 3 contract artifact, same discipline as ADR-046
+
+`contracts/drizzle-schema.ts` also includes `grant_claims`, `effective_access` (a materialized/cached view), and `access_change_requests` in its entitlement section. ENT-001 implements only `access_policies`, `access_grants`, and `grant_events` - the three tables its own backlog acceptance criteria require (versioned/auditable policy, immutable grant, event-sourced status). Claim-level materialization (`grant_claims`), an effective-access read-model/cache, and a formal change-request/approval workflow are left to ENT-002/ENT-003/ENT-004, matching ADR-046's precedent of not building schema ahead of the task that owns its acceptance criteria (`29_CLAUDE_CODE_EXECUTION_PLAN.md` §13's "generating schema first" anti-pattern). `packages/domain/src/access/dedupe.ts#distinctTargets` covers this task's own narrower "duplicate content must not appear twice" requirement directly in the pure layer, without needing a materialized table.
+
+### Policy config is schema-validated JSONB, locked by a stamped checksum
+
+`access_policies.config` stores the full versioned entitlement policy document (validity mode, claims, attempt allowance, post-expiry behaviour, stacking, lifecycle) as JSONB, validated at runtime against the reviewed `contracts/entitlement-policy.schema.json` via AJV (`packages/db/src/access/policy-repository.ts#assertValidPolicyConfig`) - not merely accepted as opaque JSON. Per `CLAUDE.md`'s "JSONB stores versioned configuration/snapshots, not core relational integrity," the relational invariants that matter (immutability, one-checksum-per-version, publish-time tamper detection) are still enforced outside the JSONB blob: a unique `(code, version)` index makes a new version a new row rather than an edit, and `checksum` is a canonical-JSON SHA-256 (`packages/domain/src/access/policy-checksum.ts`) stamped at draft time and re-verified at `publishPolicyVersion` - a config mutated out-of-band between draft and publish (the one path this repository's own API never allows) is rejected as `PolicyChecksumMismatchError` rather than silently published. The checksum function is reimplemented independently in `packages/domain` rather than imported from `packages/testing`, honoring the ADR-042 layering matrix (`db → [contracts, domain]` only).
+
+### Ownership-scoped events, not open mutation
+
+`grant-repository.ts#recordGrantEvent` requires the acting `(sourceType, sourceId)` to match the grant's own issuing source (`packages/domain/src/access/grant-status.ts#isOwnedBy`) before accepting a `suspended`/`revoked`/`cancelled`/etc. event, and requires a `reason` whenever the policy's `lifecycle.manualChangeRequiresReason` is true. This implements `dok 05 §10` case E4 (`SOURCE_OWNERSHIP_MISMATCH`) directly: a `purchase`-sourced grant cannot be revoked by an actor claiming to be the `scholarship` source, even for the same user and even if both grants target the same claim - which is also what makes the required "overlapping grants are independent" negative test meaningful rather than vacuous.
+
+### `through_program_or_batch_end` requires an explicit lifecycle end - no program/batch table to read yet
+
+`packages/domain/src/access/policy-validity.ts#computeValidityWindow`'s `through_program_or_batch_end` mode takes `context.lifecycleEndsAt` as a required explicit input rather than resolving it from a program/batch record, because no such table exists in this task's schema scope (see above). The function throws `InvalidValidityConfigError` if the context is missing it. Whichever task introduces program/batch schema is expected to supply that value at the call site; this task deliberately does not guess a resolution path for data it cannot yet read.
+
+### Consequences
+
+`packages/domain/src/access` and `packages/db/src/access` follow the same split ADR-046 established: pure decision logic (validity, status derivation, dedup, checksum) in `packages/domain`, driver-agnostic persistence and runtime schema validation in `packages/db`, `*.integration.test.ts` for real-engine-backed behaviour including negative cases (revoked, expired-at-boundary, overlapping-grant independence, ownership-mismatch, duplicate-content collapse). The next task building on this (grant claims / effective access) should treat `distinctTargets` and `deriveGrantStatus` as the two functions to compose against, not reimplement.
+
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
 - ADR-006 identity bridge;

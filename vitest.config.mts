@@ -29,8 +29,18 @@ export default defineConfig({
           // occasionally slower than vitest's 10s hookTimeout default under
           // load, which is a real defect this exact run caught - hookTimeout
           // is a separate setting from testTimeout and both need raising.
-          testTimeout: 20_000,
-          hookTimeout: 20_000,
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+          // ENT-001 added a second and third integration test file alongside
+          // IDN-001's; running them in parallel worker processes made every
+          // file boot its own PGlite/WASM instance simultaneously, causing
+          // CPU contention severe enough to blow past hookTimeout in
+          // beforeEach (observed: 3/3 files affected in one run). Integration
+          // suites are DB-boot-bound, not CPU-parallelism-bound, so running
+          // the files sequentially in one worker is strictly faster and
+          // reliable rather than trying to outrun contention with a bigger
+          // timeout.
+          fileParallelism: false,
         },
       },
       {

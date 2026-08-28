@@ -94,33 +94,45 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 - **`db:check`** sekarang guard nyata: menjalankan `drizzle-kit generate` dan membandingkan hash isi `packages/db/drizzle/` sebelum/sesudah — gagal kalau schema berubah tapi migration belum di-generate ulang.
 - Belum ada route HTTP/API yang memanggil layer ini — `apps/web`/`apps/worker` tidak diubah pada task ini. Wiring HTTP (`/auth/bridge/exchange`, cookie) menyusul di task berikutnya.
 
+## Access grants and entitlement policies (ENT-001)
+
+- **Grant status is derived, never stored**: `access_grants` tidak punya kolom `status`. Perubahan hanya bisa terjadi lewat baris baru di `grant_events` (append-only: `activated | suspended | reinstated | revoked | cancelled`); `packages/domain/src/access/grant-status.ts#deriveGrantStatus` menghitung `scheduled | active | suspended | expired | revoked | cancelled` murni dari `(grant, events, now)` setiap kali dibaca. Lihat ADR-047.
+- **Policy versioning**: `access_policies` unik per `(code, version)` — versi baru selalu baris baru, tidak pernah edit di tempat. `config` (JSONB) divalidasi saat runtime terhadap `contracts/entitlement-policy.schema.json` (AJV) sebelum baris manapun ditulis, dan dikunci oleh checksum SHA-256 kanonik (`packages/domain/src/access/policy-checksum.ts`) yang diverifikasi ulang saat `publishPolicyVersion` — config yang berubah di luar API repository ini ditolak sebagai `PolicyChecksumMismatchError`, bukan diam-diam dipublikasikan.
+- **Validity modes** (`packages/domain/src/access/policy-validity.ts`): `fixed_window`, `duration_after_purchase`, `duration_after_activation` (menunggu event `activated`), `through_program_or_batch_end` (mensyaratkan `lifecycleEndsAt` eksplisit — belum ada tabel program/batch di scope task ini), `lifetime`, `manual`.
+- **Ownership-scoped events**: `recordGrantEvent` menolak event yang `(sourceType, sourceId)`-nya tidak cocok dengan sumber yang menerbitkan grant (`isOwnedBy`), dan mensyaratkan `reason` ketika `lifecycle.manualChangeRequiresReason` true pada policy terkait — grant dari `purchase` tidak bisa direvoke oleh aktor yang mengklaim sebagai `scholarship`.
+- **Duplicate content tidak tampil dua kali**: `packages/domain/src/access/dedupe.ts#distinctTargets` mengumpulkan klaim dari sumber berbeda yang menunjuk `(target, action)` yang sama menjadi satu entri, tetap menyimpan seluruh sumber pendukungnya.
+- **Test negatif wajib** (`packages/db/src/access/grant-repository.integration.test.ts`): revoked access ditolak, expired access ditolak tepat di batas waktu, grant yang overlap dari sumber berbeda independen satu sama lain (ENT-SYN-002), ownership mismatch ditolak (ENT-SYN-004), duplicate content tidak tampil dua kali.
+- **Schema (migration kedua)**: `packages/db/src/schema/access.ts` — `access_policies`, `access_grants`, `grant_events`. Sengaja lebih sempit dari `contracts/drizzle-schema.ts`; `grant_claims`, `effective_access` (materialized view), dan `access_change_requests` milik ENT-002/003/004 (lihat ADR-047).
+- Tidak ada bridge WordPress/Sejoli hidup dan tidak ada pembukaan akses dari email semata pada task ini — keduanya di luar scope ENT-001 secara eksplisit.
+
 ## Struktur
 
-| Path                           | Fungsi                                                                  |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| `CLAUDE.md`                    | Instruksi persistent yang dibaca Claude Code                            |
-| `.claude/skills/`              | Empat skill domain Superlatif                                           |
-| `docs/gates/`                  | Dokumen canonical Gates 1–4                                             |
-| `docs/audit/`                  | Findings dan audit closure                                              |
-| `docs/source/`                 | Instruksi awal dan deck brand                                           |
-| `contracts/`                   | OpenAPI, JSON Schema, template import, kontrak Gate 3                   |
-| `planning/`                    | Backlog implementasi dan release-gate evidence contract                 |
-| `test/fixtures/contracts/`     | Fixture sintetis untuk contract/integration tests                       |
-| `scripts/`                     | Validator starter, boundary check, migration guard                      |
-| `apps/web`                     | Deployment unit student/admin web dan BFF (Next.js App Router)          |
-| `apps/worker`                  | Deployment unit background worker                                       |
-| `packages/contracts`           | Tipe kontrak bersama turunan `contracts/`                               |
-| `packages/domain`              | Modul domain murni; tanpa UI dan tanpa vendor SDK                       |
-| `packages/domain/src/identity` | Pure domain: session crypto, identity-linking policy (IDN-001)          |
-| `packages/db`                  | Drizzle schema dan migration (IDN-001: identity subset)                 |
-| `packages/db/src/schema`       | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                 |
-| `packages/db/drizzle/`         | Migration SQL ter-generate — **commit**, jangan diedit manual           |
-| `packages/ui`                  | Primitive design system student/admin                                   |
-| `packages/observability`       | Structured logging, redaksi, correlation ID, manifest evidence          |
-| `packages/integrations`        | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03             |
-| `packages/testing`             | Factory, clock injection, seeded randomness, provider fake              |
-| `.gitleaks.toml`               | Konfigurasi Gitleaks repo-lokal (BD-08)                                 |
-| `.cache/gitleaks/`             | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan` |
+| Path                           | Fungsi                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `CLAUDE.md`                    | Instruksi persistent yang dibaca Claude Code                                      |
+| `.claude/skills/`              | Empat skill domain Superlatif                                                     |
+| `docs/gates/`                  | Dokumen canonical Gates 1–4                                                       |
+| `docs/audit/`                  | Findings dan audit closure                                                        |
+| `docs/source/`                 | Instruksi awal dan deck brand                                                     |
+| `contracts/`                   | OpenAPI, JSON Schema, template import, kontrak Gate 3                             |
+| `planning/`                    | Backlog implementasi dan release-gate evidence contract                           |
+| `test/fixtures/contracts/`     | Fixture sintetis untuk contract/integration tests                                 |
+| `scripts/`                     | Validator starter, boundary check, migration guard                                |
+| `apps/web`                     | Deployment unit student/admin web dan BFF (Next.js App Router)                    |
+| `apps/worker`                  | Deployment unit background worker                                                 |
+| `packages/contracts`           | Tipe kontrak bersama turunan `contracts/`                                         |
+| `packages/domain`              | Modul domain murni; tanpa UI dan tanpa vendor SDK                                 |
+| `packages/domain/src/identity` | Pure domain: session crypto, identity-linking policy (IDN-001)                    |
+| `packages/domain/src/access`   | Pure domain: validity window, grant status derivation, dedupe, checksum (ENT-001) |
+| `packages/db`                  | Drizzle schema dan migration (IDN-001: identity subset; ENT-001: access subset)   |
+| `packages/db/src/schema`       | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                           |
+| `packages/db/drizzle/`         | Migration SQL ter-generate — **commit**, jangan diedit manual                     |
+| `packages/ui`                  | Primitive design system student/admin                                             |
+| `packages/observability`       | Structured logging, redaksi, correlation ID, manifest evidence                    |
+| `packages/integrations`        | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03                       |
+| `packages/testing`             | Factory, clock injection, seeded randomness, provider fake                        |
+| `.gitleaks.toml`               | Konfigurasi Gitleaks repo-lokal (BD-08)                                           |
+| `.cache/gitleaks/`             | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan`           |
 
 Layout ini dikunci oleh **ADR-042** dan merekonsiliasi `CLAUDE.md`/BD-02 dengan `20_TECHNICAL_ARCHITECTURE.md` §5.
 

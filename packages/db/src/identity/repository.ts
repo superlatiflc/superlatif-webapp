@@ -7,25 +7,15 @@
 // domain decisions (identity-linking.ts, session.ts) meet real reads/writes.
 
 import { and, eq, or } from "drizzle-orm";
-import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import type {
   ExistingExternalIdentity,
   ExistingUserByContact,
   IdentityLinkCandidate,
 } from "@superlatif/domain/identity";
+import type { Queryable, Schema } from "../db-types.ts";
 import { externalIdentities, identityConflicts, userSessions, users } from "../schema/index.ts";
 
-/** Anything that can run drizzle queries: a top-level db handle or an open transaction. Both drivers satisfy this identically. */
-export type Queryable<TSchema extends Record<string, unknown> = Record<string, never>> =
-  PgDatabase<PgQueryResultHKT, TSchema> | PgTransaction<PgQueryResultHKT, TSchema>;
-
-/** Exported so service.ts (and any other consumer) references the exact same type, not a structurally-similar redeclaration drizzle's generics would reject. */
-export type Schema = {
-  users: typeof users;
-  externalIdentities: typeof externalIdentities;
-  userSessions: typeof userSessions;
-  identityConflicts: typeof identityConflicts;
-};
+export type { Queryable, Schema } from "../db-types.ts";
 
 export async function findExternalIdentity(
   db: Queryable<Schema>,
