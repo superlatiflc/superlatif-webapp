@@ -1,8 +1,9 @@
-# Continuous integration (GOV-002, hardened in GOV-003).
+# Continuous integration (GOV-002, hardened in GOV-003, evidence in GOV-004).
 #
 # Runs the static, unit, contract, determinism, secret-scanning, and
 # migration checks that 27_QA_TESTING_AND_UAT_PLAN.md §3 marks mandatory on
-# merge. Every step is the same command a developer runs locally
+# merge, then generates and uploads the CI half of the BD-06 evidence record.
+# Every check step is the same command a developer runs locally
 # (`pnpm run verify`), so CI cannot drift from what ran on this machine.
 #
 # "Failures block merge" is only true once this workflow is configured as a
@@ -12,9 +13,10 @@
 # Third-party actions are pinned to a commit SHA, not a floating tag, cross-
 # checked on 2026-08-28 against both the tag's direct ref and GitHub's
 # /commits/<tag> resolution:
-#   actions/checkout@v4      -> 11d5960a326750d5838078e36cf38b85af677262
-#   pnpm/action-setup@v4     -> b906affcce14559ad1aafd4ab0e942779e9f58b1
-#   actions/setup-node@v4    -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+#   actions/checkout@v4        -> 11d5960a326750d5838078e36cf38b85af677262
+#   pnpm/action-setup@v4       -> b906affcce14559ad1aafd4ab0e942779e9f58b1
+#   actions/setup-node@v4      -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+#   actions/upload-artifact@v4 -> ea165f8d65b6e75b540449e92b4886f43607fa02
 # Bumping a pin means re-resolving the SHA the same way, not typing one in.
 
 name: CI
@@ -88,3 +90,18 @@ jobs:
 
       - name: Starter bundle integrity
         run: pnpm run validate:starter
+
+      - name: Generate release evidence (GOV-004, BD-06)
+        run: pnpm run evidence:generate
+
+      - name: Upload release evidence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: .release-evidence/
+          if-no-files-found: error
+          # Short retention: this is the CI-artifact half of BD-06 only. The
+          # restricted operational record (superlatif-ops-evidence) is the
+          # durable copy; an operator is responsible for populating it and
+          # is not something this workflow can do on its own authority.
+          retention-days: 90

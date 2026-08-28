@@ -355,6 +355,30 @@ A near-miss (edit-distance) typo detector flags an unrecognized variable that is
 
 Bumping the Gitleaks version means updating `GITLEAKS_VERSION` and every per-platform digest in `scripts/gitleaks-pin.mjs` together, sourced from that release's own checksums file - never typed from memory. Adding an environment variable means adding it to `.env.example` and `env-spec.ts` together, or `env.test.ts` fails. Feature flags additionally require an entry in `packages/contracts/src/flags.ts`'s ownership registry (`flags.test.ts` asserts the two sets match), so a flag cannot be introduced with only an env var and no named owner or removal condition.
 
+## ADR-045 — Redaction: user_id is an operational-log override; evidence manifests reject rather than redact
+
+**Status:** Accepted  
+**Date:** 28 August 2026  
+**Decided during:** GOV-004.
+
+### Context
+
+`packages/observability` derives its redaction denylist from `contracts/analytics-event-catalog.json`'s `prohibitedProperties` (GOV-004's plan intent: no hand-duplicated list). That catalog exists to keep third-party-bound, pseudonymous product analytics events clean (ADR-025) and includes `user_id` in its prohibited list for that reason. Applying the same denylist unmodified to general structured application/audit logs breaks `24_AUTH_RBAC_SECURITY_AND_PRIVACY.md` §17, which explicitly names "object IDs" as a safe structured field, and §14, which requires audit logs to record manual access/correction/identity-merge actions - actions that are meaningless without recording which user they concern.
+
+### Decision
+
+`packages/observability/src/redaction.ts` excludes exactly one field, `user_id`/`userId`, from the analytics-derived denylist, with the exclusion named and reasoned in code (`OPERATIONAL_LOG_OVERRIDES`). No other analytics-prohibited field is excluded: email, phone, full_name, and the rest remain denied in both analytics events and operational logs, because dok 24 §17's safe-field list does not extend to them.
+
+Separately: a release evidence manifest (`release-evidence.ts`) uses **reject**, not redact, when forbidden content is found. A log line silently substituting `[redacted]` for a secret is correct - logging must never crash the application. A standing evidence record silently doing the same would misrepresent what was actually captured, so `createReleaseEvidenceManifest` throws `ReleaseEvidenceRejectedError` instead, forcing the caller to remove the offending field before evidence exists at all.
+
+### A naming lesson kept as a regression test
+
+An early version of the CI evidence generator recorded a check result under the key `"secrets:scan"` (the pnpm script's own name) and was rejected by the manifest builder it was calling, because the key contains the substring "secret" - the same default-deny substring rule doing its job correctly, just against a metadata key rather than an actual secret. The fix renamed the generator's keys to describe outcomes (`gitleaksClean`, `buildSucceeded`, ...) rather than echoing internal script names. `release-evidence.test.ts` keeps both facts as separate assertions: `gitleaksClean` is accepted, and a key literally containing "secret" is still (correctly) rejected.
+
+### Consequences
+
+Any future addition to `contracts/analytics-event-catalog.json`'s `prohibitedProperties` is denylisted in operational logs automatically, unless a comparably-reasoned override is added to `OPERATIONAL_LOG_OVERRIDES` - the bar for adding one should stay high and each one should cite the specific dok 24 §17 clause that permits it. Evidence-manifest field names should be chosen to describe outcomes, not to echo script/tool names, precisely because tool names sometimes contain words the redaction rules treat as sensitive by design.
+
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
 - ADR-006 identity bridge;
