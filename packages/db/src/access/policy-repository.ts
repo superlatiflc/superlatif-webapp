@@ -165,3 +165,23 @@ export async function findPolicyByCodeVersion(
     .limit(1);
   return row ?? null;
 }
+
+/** Looked up by primary key - what access_grants.accessPolicyId actually stores (ENT-002's resolver needs a grant's own policy config, not a code+version pair it may not have on hand). */
+export async function findPolicyById(
+  db: Queryable<Schema>,
+  policyId: string,
+): Promise<(PolicyRow & { config: Record<string, unknown> }) | null> {
+  const [row] = await db
+    .select({
+      id: accessPolicies.id,
+      code: accessPolicies.code,
+      version: accessPolicies.version,
+      status: accessPolicies.status,
+      checksum: accessPolicies.checksum,
+      config: accessPolicies.config,
+    })
+    .from(accessPolicies)
+    .where(eq(accessPolicies.id, policyId))
+    .limit(1);
+  return row ?? null;
+}

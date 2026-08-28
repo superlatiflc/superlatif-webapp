@@ -4,6 +4,7 @@ export {
   assertValidPolicyConfig,
   createPolicyDraft,
   findPolicyByCodeVersion,
+  findPolicyById,
   publishPolicyVersion,
   type CreatePolicyDraftInput,
   type PolicyRow,
@@ -22,3 +23,11 @@ export {
   type IssueGrantInput,
   type RecordGrantEventInput,
 } from "./grant-repository.ts";
+
+export {
+  getAttemptAllowance,
+  getEffectiveAccess,
+  issueGrantAndInvalidate,
+  listResolvableGrantsForUser,
+  recordGrantEventAndInvalidate,
+} from "./effective-access-service.ts";
