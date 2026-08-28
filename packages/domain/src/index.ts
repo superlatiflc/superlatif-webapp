@@ -7,7 +7,11 @@
 //
 // Owning backlog task per subdomain; behaviour is added only by the task
 // that owns it. identity/ is owned by IDN-001 onward, access/ by ENT-001
-// onward.
+// onward, commerce/ by COM-001 onward. shared/ holds cross-domain-area pure
+// helpers (currently: the canonical-JSON checksum both access/ and
+// commerce/ use for their version-not-mutate discipline).
 
 export * as identity from "./identity/index.ts";
 export * as access from "./access/index.ts";
+export * as commerce from "./commerce/index.ts";
+export * as shared from "./shared/index.ts";

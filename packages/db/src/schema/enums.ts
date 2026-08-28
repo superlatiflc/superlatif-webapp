@@ -33,3 +33,20 @@ export const grantEventType = pgEnum("grant_event_type", [
   "revoked",
   "cancelled",
 ]);
+
+// contracts/drizzle-schema.ts's targetType, matching
+// entitlement-policy.schema.json's claim.targetType exactly (ENT-001) -
+// what a product_component (COM-001) or a policy claim can point at. Shared
+// vocabulary between the commerce and access domains, not duplicated.
+export const targetType = pgEnum("target_type", [
+  "program",
+  "program_track",
+  "module",
+  "resource",
+  "live_session",
+  "live_session_series",
+  "exam_batch",
+  "batch_collection",
+  "community",
+  "capability",
+]);
