@@ -329,6 +329,32 @@ Delivered starter artifacts are excluded from both tools: `CLAUDE.md`, `START_HE
 
 Formatting disagreements stop being review comments. The exclusion list must be revisited if a Gate document ever becomes generated rather than authored. The narrow rule set means a UI-specific class of defect is not yet caught by lint; that gap closes in P2 and is recorded here so it is not mistaken for coverage that already exists.
 
+## ADR-044 — Self-verified Gitleaks install; env contract derived from .env.example
+
+**Status:** Accepted  
+**Date:** 28 August 2026  
+**Decided during:** GOV-003. Implements the BD-06/BD-08 decisions ADR-042 already locked.
+
+### Context
+
+ADR-042 locked Gitleaks, pinned by version and checksum/digest, as the BD-08 scanner. Implementing that during GOV-003 raised two decisions ADR-042 did not go deep enough to settle.
+
+### Decision 1: verify the binary ourselves, do not trust a third-party Action's internal pinning
+
+`gitleaks/gitleaks-action` exists and downloads Gitleaks internally, but auditing exactly what it pins and verifies means reading and trusting that action's own supply chain. Instead, `scripts/gitleaks-pin.mjs` records the exact release version (`8.30.1`) and a SHA-256 digest per platform, read directly from that release's own `gitleaks_8.30.1_checksums.txt` and cross-checked on 2026-08-28 by downloading both the `linux_x64` (CI) and `darwin_arm64` (local development) assets and comparing computed digests byte for byte. `scripts/install-gitleaks.mjs` refuses to extract or execute a download whose digest does not match, and writes a `.verified-sha256` marker next to the cached binary so a stale, unverified cache can never be silently trusted on a later run. GitHub Actions is still pinned to a commit SHA for `actions/checkout`, `pnpm/action-setup`, and `actions/setup-node` (recorded in `.github/workflows/ci.yml`), but the security-relevant download - the scanner itself - is verified by this repository's own code, not delegated.
+
+### Decision 2: the environment contract is derived from `.env.example`, not duplicated by hand
+
+`packages/contracts/src/env-spec.ts` declares one entry per variable, and `env.test.ts` asserts the schema's variable names are exactly the set found in `.env.example` (49 variables on both sides at time of writing). This makes `.env.example` the single source of truth for which variables exist; the schema cannot silently drift from the template that ships as evidence. Each field is one of three requirement tiers: `required` (no safe default exists - APP_ENV, LOG_LEVEL, and the three base URLs), `optional-default` (a coded, non-secret safe default - all boolean flags, TTLs, `OTEL_SERVICE_NAME`, `TEST_FIXTURE_SEED`), or `optional-no-default` (a secret or an undecided-provider variable nothing consumes yet - DATABASE_URL, SESSION_*, WP_BRIDGE_*, and similar). `env.test.ts` asserts mechanically that no field marked `secret: true` ever carries a coded default, and that every `FEATURE_*`/`SKD_PRODUCTION_ACTIVATION`/`PRODUCTION_WRITES_ENABLED` default is exactly `"false"` - the acceptance criterion "production-sensitive capability defaults off" as a test, not only a convention.
+
+`apps/web/instrumentation.ts` and `apps/worker/src/index.ts` call `loadCoreEnv()` at startup, validating only the subset of fields real code reads today (the six `required` fields). Marking `DATABASE_URL` or `SESSION_SIGNING_SECRET` required now, before anything connects to a database or issues a session, would invent a requirement P0 cannot honestly enforce; each field's comment in `env-spec.ts` names the task expected to extend `CORE_REQUIRED_FOR_STARTUP` when it starts consuming that variable.
+
+A near-miss (edit-distance) typo detector flags an unrecognized variable that is almost certainly a misspelling of a declared one (for example `FEATURE_QUESTON_IMPORT`). An earlier prefix-based design was rejected after it false-positived in this repository's own development shell, which already had an unrelated `API_TIMEOUT_MS` variable set - a name that merely shared the generic `API_` prefix with `API_BASE_URL`. That failure is kept as a named regression test (`env.test.ts`, `startup.contract.test.ts`).
+
+### Consequences
+
+Bumping the Gitleaks version means updating `GITLEAKS_VERSION` and every per-platform digest in `scripts/gitleaks-pin.mjs` together, sourced from that release's own checksums file - never typed from memory. Adding an environment variable means adding it to `.env.example` and `env-spec.ts` together, or `env.test.ts` fails. Feature flags additionally require an entry in `packages/contracts/src/flags.ts`'s ownership registry (`flags.test.ts` asserts the two sets match), so a flag cannot be introduced with only an env var and no named owner or removal condition.
+
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
 - ADR-006 identity bridge;

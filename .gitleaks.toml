@@ -1,0 +1,52 @@
+# Gitleaks configuration (GOV-003, BD-08).
+#
+# Gitleaks is the primary secret scanner. GitHub Secret Scanning/Push
+# Protection may run as an additional layer where available; it never
+# replaces this configuration or this scan.
+#
+# We extend rather than replace the built-in rule set:
+# 24_AUTH_RBAC_SECURITY_AND_PRIVACY.md §12 requires catching provider/
+# session secrets generically, not only well-known vendor token shapes.
+
+title = "superlatif-webapp"
+
+[extend]
+useDefault = true
+
+# .env.example ships variable NAMES with empty values by contract (see
+# .env.example header and GOV-003 env schema). If one of those names is ever
+# followed by a real-looking value anywhere in the tree, that is exactly the
+# regression this rule exists to catch.
+[[rules]]
+id = "superlatif-example-env-secret-name-with-value"
+description = "A secret-shaped variable name from .env.example carries a non-empty value"
+# [ \t] (not \s) after "=" deliberately excludes the newline: a naive \s*
+# would let the match cross into the next line and false-positive on the
+# following variable NAME as if it were this line's value.
+regex = '''(?i)(SESSION_SIGNING_SECRET|SESSION_ENCRYPTION_SECRET|ASSET_SIGNING_SECRET|WP_BRIDGE_CLIENT_SECRET|SEJOLI_WEBHOOK_SIGNING_SECRET|OBJECT_STORAGE_SECRET_ACCESS_KEY|EMAIL_PROVIDER_API_KEY|WHATSAPP_PROVIDER_API_KEY|PII_HASHING_SECRET|AUDIT_LOG_SIGNING_SECRET)=[ \t]*[^\s"']{8,}'''
+tags = ["superlatif", "config"]
+
+[allowlist]
+description = "Synthetic fixtures, contract artifacts, and gitignored generated output"
+paths = [
+  '''test/fixtures/contracts/.*\.json$''',
+  '''contracts/drizzle-schema\.ts$''',
+  # Build/dependency output. Already gitignored (never committed); regenerated
+  # per build/install with fresh random keys (e.g. Next.js preview-mode
+  # signing/encryption keys). Scanning it is noise, not signal - the
+  # protection those keys need is "never commit .next/", which .gitignore
+  # already enforces.
+  '''(^|/)node_modules/''',
+  '''(^|/)\.next/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''(^|/)\.cache/''',
+]
+regexTarget = "match"
+regexes = [
+  # TEST_FIXTURE_SEED's value is a deterministic test seed by contract
+  # (.env.example: "Test-only deterministic seed; never reuse as a
+  # production secret"), not a credential.
+  '''TEST_FIXTURE_SEED''',
+]

@@ -13,7 +13,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint . && node scripts/check-workspace-boundaries.mjs",
     "lint:boundaries": "node scripts/check-workspace-boundaries.mjs",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "build": "pnpm -r --if-present build",
     "test:unit": "vitest run --project unit",
     "test:contract": "vitest run --project contract",
@@ -21,13 +21,14 @@
     "test:e2e": "node scripts/not-configured.mjs test:e2e \"P2 (first real UI surface)\"",
     "test:a11y": "node scripts/not-configured.mjs test:a11y \"P2 (first real UI surface)\"",
     "contracts:validate": "node scripts/validate-contracts.mjs",
+    "secrets:scan": "node scripts/scan-secrets.mjs",
     "fixtures:digest": "node scripts/fixture-digest.mjs",
     "check:determinism": "node scripts/check-determinism.mjs",
     "db:generate": "node scripts/not-configured.mjs db:generate \"BD-05 lock at P1\"",
     "db:migrate": "node scripts/not-configured.mjs db:migrate \"BD-05 lock at P1\"",
     "db:check": "node scripts/db-check.mjs",
     "validate:starter": "node scripts/validate-starter.mjs",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test:unit && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run secrets:scan && pnpm run test:unit && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
