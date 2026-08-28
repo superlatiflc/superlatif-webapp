@@ -16,21 +16,41 @@ afterEach(() => {
   fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
 });
 
-describe("scripts/generate-release-evidence.mjs", () => {
-  it("produces a manifest keyed by the real commit SHA, with no forbidden content", () => {
-    fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+/**
+ * These fixtures must not depend on the ambient environment the test SUITE
+ * itself happens to run in. An earlier version asserted releaseId matched
+ * /^local-/ with the comment "no GITHUB_RUN_ID in this environment" - true
+ * on a developer machine, false the moment this suite runs inside GitHub
+ * Actions (where GITHUB_RUN_ID/NUMBER are always set), which is exactly
+ * where pnpm run test:contract runs in CI. Fixed by explicitly controlling
+ * the child process environment for both branches instead of relying on
+ * whatever happened to be ambient.
+ */
+function runGenerator(envOverrides: Record<string, string | undefined>) {
+  fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+  const env = { ...process.env, ...envOverrides };
+  for (const [key, value] of Object.entries(envOverrides)) {
+    if (value === undefined) delete env[key];
+  }
+  const stdout = execFileSync(process.execPath, [GENERATOR], { cwd: REPOSITORY_ROOT, encoding: "utf8", env });
+  const result = JSON.parse(stdout);
+  const files = fs.readdirSync(OUTPUT_DIR);
+  const manifest = JSON.parse(fs.readFileSync(path.join(OUTPUT_DIR, files[0] as string), "utf8"));
+  return { result, manifest };
+}
 
-    const stdout = execFileSync(process.execPath, [GENERATOR], { cwd: REPOSITORY_ROOT, encoding: "utf8" });
-    const result = JSON.parse(stdout);
+describe("scripts/generate-release-evidence.mjs", () => {
+  it("produces a manifest keyed by the real commit SHA, with no forbidden content (local branch, forced)", () => {
+    const { result, manifest } = runGenerator({
+      GITHUB_RUN_ID: undefined,
+      GITHUB_RUN_NUMBER: undefined,
+      CI: undefined,
+    });
     expect(result.status).toBe("PASS");
 
-    const files = fs.readdirSync(OUTPUT_DIR);
-    expect(files).toHaveLength(1);
-
-    const manifest = JSON.parse(fs.readFileSync(path.join(OUTPUT_DIR, files[0] as string), "utf8"));
     expect(manifest.schemaVersion).toBe("1.0");
     expect(manifest.commitSha).toBe(currentCommitSha());
-    expect(manifest.releaseId).toMatch(/^local-/); // no GITHUB_RUN_ID in this environment
+    expect(manifest.releaseId).toMatch(/^local-/);
     expect(manifest.checks.gitleaksClean).toBe(true);
     expect(Object.keys(manifest.checks)).toHaveLength(11);
 
@@ -42,17 +62,8 @@ describe("scripts/generate-release-evidence.mjs", () => {
     );
   });
 
-  it("derives releaseId from GITHUB_RUN_ID/NUMBER when present, matching the CI environment", () => {
-    fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
-
-    execFileSync(process.execPath, [GENERATOR], {
-      cwd: REPOSITORY_ROOT,
-      encoding: "utf8",
-      env: { ...process.env, GITHUB_RUN_ID: "999888777", GITHUB_RUN_NUMBER: "42", CI: "true" },
-    });
-
-    const files = fs.readdirSync(OUTPUT_DIR);
-    const manifest = JSON.parse(fs.readFileSync(path.join(OUTPUT_DIR, files[0] as string), "utf8"));
+  it("derives releaseId from GITHUB_RUN_ID/NUMBER when present, matching the CI environment (forced)", () => {
+    const { manifest } = runGenerator({ GITHUB_RUN_ID: "999888777", GITHUB_RUN_NUMBER: "42", CI: "true" });
     expect(manifest.releaseId).toBe("gh-999888777.42");
     expect(manifest.environment).toBe("ci");
   });
