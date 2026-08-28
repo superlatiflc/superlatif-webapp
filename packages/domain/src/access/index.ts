@@ -22,3 +22,39 @@ export {
 export { dedupeClaims, distinctTargets, type DedupableClaim, type DistinctTarget } from "./dedupe.ts";
 
 export { computeChecksum, type JsonValue } from "./policy-checksum.ts";
+
+export {
+  resolveEffectiveAccess,
+  type AvailabilityOverride,
+  type EffectiveAccessDecision,
+  type EffectiveAccessDiagnosticEntry,
+  type EffectiveAccessOptions,
+  type EffectiveAccessQuery,
+  type EffectiveAccessReasonCode,
+  type PolicyClaim,
+  type ResolvableGrant,
+  type TargetRef,
+} from "./effective-access.ts";
+
+export {
+  resolveAttemptAllowance,
+  type AttemptAllowanceClaim,
+  type AttemptAllowanceMode,
+  type AttemptAllowanceResult,
+  type AttemptResolutionStrategy,
+} from "./attempt-allowance.ts";
+
+export {
+  createInMemoryEffectiveAccessCache,
+  effectiveAccessCacheKey,
+  type EffectiveAccessCache,
+  type InMemoryEffectiveAccessCacheOptions,
+} from "./effective-access-cache.ts";
+
+export {
+  parseAttemptAllowanceTemplate,
+  parsePolicyClaims,
+  parseStacking,
+  type ParsedAttemptAllowanceTemplate,
+  type ParsedStacking,
+} from "./policy-config-parsing.ts";
