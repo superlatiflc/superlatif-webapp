@@ -9,3 +9,9 @@ export {
   roles,
   userRoles,
 } from "./authorization.ts";
+export {
+  accessChangeDecisions,
+  accessChangeRequests,
+  changeDecisionOutcome,
+  changeExecutionStatus,
+} from "./access-change.ts";

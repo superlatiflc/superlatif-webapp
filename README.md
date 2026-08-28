@@ -138,6 +138,18 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 - **`includeDescendants` tetap butuh ancestry dari caller**: sama seperti `lifecycleEndsAt` di ENT-001, `isDescendantOf` adalah parameter opsional yang harus disuplai caller — belum ada tabel hierarki program/track (PRG series).
 - **Gate A tidak diklaim PASS**: task ini hanya melengkapi ENT-003/004/005 requirement; `planning/release-gates.json` tidak diubah — status gate tetap keputusan founder/owner terhadap requirement set lengkap. Lihat ADR-050.
 
+## Manual grant, extension, dan revocation dengan reasoned approval (ENT-004)
+
+- **Dua tabel append-only, bukan satu row berstatus mutable**: `access_change_requests` (ask immutable — changeType, target, requester, reason, correlationId, payload, previewSnapshot) + `access_change_decisions` (append-only — approve/reject plus hasil eksekusi). Status (`pending_approval|rejected|executed|execution_failed`) di-derive lewat `packages/domain/src/access/manual-change.ts#deriveManualChangeStatus`, tidak pernah disimpan. Lihat ADR-051.
+- **Preview adalah before-state nyata**: `requestManualChange` menghitung `previewSnapshot` — effective access SEBELUM perubahan untuk setiap target/action yang di-cover policy yang diminta (lewat ENT-002's `getEffectiveAccess`) — dihitung sekali saat request, disimpan verbatim.
+- **`authorize()` (IDN-004) menggerbangi setiap langkah**: `requestManualChange` menolak sebelum menulis apa pun bila actor tidak punya `access.manual.change` atau `reason`/`correlationId` kosong (`AUDIT_FIELDS_REQUIRED`, action type `manual_grant_revoke_extension` — high-risk per dok 24 §7). `decideManualChange` memanggil `authorize()` lagi untuk approver, dengan `object.creatorUserId = requester` — self-approval ditolak `MAKER_CHECKER_VIOLATION` secara struktural, berlaku untuk semua role.
+- **Melengkapi nuance IDN-004 yang sengaja ditunda**: `access.manual.change` untuk `academic_admin`/`operations_admin` dinaikkan dari `scoped_nuance` ke `granted` (`requiresApproval:true`) — "Terbatas" sekarang berarti "wajib peer approval", ditegakkan universal oleh workflow ini, bukan oleh flag matrix per role. `support`'s "Request terbatas" sengaja tetap belum diselesaikan (request-only, di luar scope task ini).
+- **Manual grant memakai `sourceId` stabil per-siswa**: setiap manual grant memakai `sourceId=targetUserId` (bukan id request) + `sourceKey=changeRequestId` — membuat revocation manual TERHADAP GRANT MANUAL manapun untuk siswa itu selalu bisa (ownership match), sekaligus membuat revocation manual terhadap grant **purchase** gagal secara struktural (`GrantOwnershipMismatchError`, `"manual" !== "purchase"`) — inilah yang menegakkan "jangan pernah rewrite purchase grant asli" pada level eksekusi, bukan hanya konvensi.
+- **Kegagalan eksekusi tidak melempar exception mentah**: bila approval disetujui tapi eksekusi gagal (mis. ownership mismatch), decision tetap tercatat dengan `executionStatus:"execution_failed"` — keputusan manusia tetap teraudit, mutasi tidak pernah terjadi.
+- **Cache invalidation diwarisi, bukan diimplementasi ulang**: eksekusi hanya memanggil `issueGrantAndInvalidate`/`recordGrantEventAndInvalidate` (ENT-002) — satu-satunya fungsi yang menyentuh cache di seluruh codebase.
+- **Test negatif wajib** (`packages/db/src/access/manual-change-service.integration.test.ts`): unauthorized actor, missing reason, self-approval, revoking purchase grant by mutation, stale effective access cache — semua lulus lewat DB nyata.
+- Tidak ada UI admin dan tidak ada WordPress/Sejoli bridge pada task ini — keduanya di luar scope ENT-004 secara eksplisit.
+
 ## Struktur
 
 | Path                                | Fungsi                                                                                                                                    |
@@ -160,7 +172,7 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 | `packages/domain/src/commerce`      | Pure domain: bundle composition, offer sale-state, SKU mapping resolution (COM-001)                                                       |
 | `packages/domain/src/authorization` | Pure domain: RBAC matrix, object-scope/entitlement/maker-checker checks, `authorize()` (IDN-004)                                          |
 | `packages/domain/src/shared`        | Canonical-JSON checksum shared by access/ and commerce/ (promoted in COM-001)                                                             |
-| `packages/db`                       | Drizzle schema dan migration (IDN-001: identity; ENT-001: access; COM-001: commerce; IDN-004: authorization)                              |
+| `packages/db`                       | Drizzle schema dan migration (IDN-001: identity; ENT-001: access; COM-001: commerce; IDN-004: authorization; ENT-004: access-change)      |
 | `packages/db/src/schema`            | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                                                                                   |
 | `packages/db/drizzle/`              | Migration SQL ter-generate — **commit**, jangan diedit manual                                                                             |
 | `packages/ui`                       | Primitive design system student/admin                                                                                                     |
