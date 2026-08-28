@@ -105,34 +105,47 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 - **Schema (migration kedua)**: `packages/db/src/schema/access.ts` — `access_policies`, `access_grants`, `grant_events`. Sengaja lebih sempit dari `contracts/drizzle-schema.ts`; `grant_claims`, `effective_access` (materialized view), dan `access_change_requests` milik ENT-002/003/004 (lihat ADR-047).
 - Tidak ada bridge WordPress/Sejoli hidup dan tidak ada pembukaan akses dari email semata pada task ini — keduanya di luar scope ENT-001 secara eksplisit.
 
+## Product, offer, SKU, bundle, dan validity policy (COM-001)
+
+- **Immutability diselaraskan dengan ENT-001**: `products` (identitas komersial stabil, `type` bebas teks — Kelas Akselerasi, SKD-only, TKA-only, Tryout Pass, batch flash-sale tunggal cukup jadi nilai `type` baru, bukan migration), `product_versions`, dan `offers` immutable sejak dibuat — checksum SHA-256 kanonik (`packages/domain/src/shared/checksum.ts`, dipromosikan dari ENT-001) di-stamp saat draft, diverifikasi ulang saat `publishProductVersion`/`publishOffer`. "Edit draft" berarti membuat versi N+1, bukan mengubah versi N. Lihat ADR-048 untuk alasan menyimpang dari `checksum` nullable pada `contracts/drizzle-schema.ts`.
+- **Bundle tanpa duplikasi konten**: `product_components` menaut `product_version` ke target (`targetType`/`targetRef`/`includeDescendants`) plus `access_policy` (ENT-001) yang membawa aturan validity/attemptAllowance/postExpiry/stacking — komponen tidak pernah menyalin konten. Seluruh component set satu versi dikunci bersama checksum versi itu (tidak bisa ditambah/dihapus setelah dibuat).
+- **Komposisi & overlap**: `packages/domain/src/commerce/bundle-composition.ts#composeProductTargets` mengumpulkan klaim komponen — dari satu product version atau lintas product version (bundle + paket spesialis yang overlap) — menjadi target unik; target yang sama dari dua produk berbeda tampil satu kali dengan seluruh source tetap terlihat.
+- **Offer sale-state derived, bukan disimpan**: `offers.status` adalah lifecycle editorial (draft/published/archived, sama seperti `access_policies`). Status yang dilihat pembeli (`scheduled | on_sale | sold_out | ended | hidden | archived` — dok 05 §6/dok 18 §4) dihitung oleh `packages/domain/src/commerce/offer-status.ts#deriveOfferSaleState` dari status editorial + visibility + sale window + quota/soldCount setiap kali dibaca — `sold_out` hanya mungkin muncul jika `quota` benar-benar diisi (enforced).
+- **SKU mapping berversi**: `external_sku_mappings` adalah baris append-only (`mappingVersion` baru untuk setiap remap). `packages/domain/src/commerce/sku-mapping.ts#resolveSkuMapping` memilih mapping yang berlaku pada satu instant — prioritas lalu mapping version terbaru sebagai tie-break — mendukung ID Sejoli lama & baru dan pemulihan duplicate catalogue entry. Tidak ada webhook atau checkout URL yang dipanggil pada task ini.
+- **Test wajib** (`packages/db/src/commerce/*.integration.test.ts`): bundle composition (Kelas Akselerasi membuka banyak target dari satu product version), overlapping product (bundle + paket spesialis sama-sama mencakup `track:skd`, tampil sekali), expired offer, flash sale window (scheduled → on_sale → ended), mapping version test (SKU remap terhadap waktu).
+- **Schema (migration ketiga)**: `packages/db/src/schema/commerce.ts` — `products`, `product_versions`, `product_components`, `offers`, `external_sku_mappings`. Sengaja lebih sempit dari `contracts/drizzle-schema.ts`; `checkout_intents`, `purchases`, `purchase_events`, `reconciliation_cases` milik COM-002/COM-003 (lihat ADR-048).
+- Tidak ada checkout/live Sejoli bridge dan tidak menyentuh payment provider pada task ini — keduanya di luar scope COM-001 secara eksplisit.
+
 ## Struktur
 
-| Path                           | Fungsi                                                                            |
-| ------------------------------ | --------------------------------------------------------------------------------- |
-| `CLAUDE.md`                    | Instruksi persistent yang dibaca Claude Code                                      |
-| `.claude/skills/`              | Empat skill domain Superlatif                                                     |
-| `docs/gates/`                  | Dokumen canonical Gates 1–4                                                       |
-| `docs/audit/`                  | Findings dan audit closure                                                        |
-| `docs/source/`                 | Instruksi awal dan deck brand                                                     |
-| `contracts/`                   | OpenAPI, JSON Schema, template import, kontrak Gate 3                             |
-| `planning/`                    | Backlog implementasi dan release-gate evidence contract                           |
-| `test/fixtures/contracts/`     | Fixture sintetis untuk contract/integration tests                                 |
-| `scripts/`                     | Validator starter, boundary check, migration guard                                |
-| `apps/web`                     | Deployment unit student/admin web dan BFF (Next.js App Router)                    |
-| `apps/worker`                  | Deployment unit background worker                                                 |
-| `packages/contracts`           | Tipe kontrak bersama turunan `contracts/`                                         |
-| `packages/domain`              | Modul domain murni; tanpa UI dan tanpa vendor SDK                                 |
-| `packages/domain/src/identity` | Pure domain: session crypto, identity-linking policy (IDN-001)                    |
-| `packages/domain/src/access`   | Pure domain: validity window, grant status derivation, dedupe, checksum (ENT-001) |
-| `packages/db`                  | Drizzle schema dan migration (IDN-001: identity subset; ENT-001: access subset)   |
-| `packages/db/src/schema`       | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                           |
-| `packages/db/drizzle/`         | Migration SQL ter-generate — **commit**, jangan diedit manual                     |
-| `packages/ui`                  | Primitive design system student/admin                                             |
-| `packages/observability`       | Structured logging, redaksi, correlation ID, manifest evidence                    |
-| `packages/integrations`        | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03                       |
-| `packages/testing`             | Factory, clock injection, seeded randomness, provider fake                        |
-| `.gitleaks.toml`               | Konfigurasi Gitleaks repo-lokal (BD-08)                                           |
-| `.cache/gitleaks/`             | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan`           |
+| Path                           | Fungsi                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `CLAUDE.md`                    | Instruksi persistent yang dibaca Claude Code                                         |
+| `.claude/skills/`              | Empat skill domain Superlatif                                                        |
+| `docs/gates/`                  | Dokumen canonical Gates 1–4                                                          |
+| `docs/audit/`                  | Findings dan audit closure                                                           |
+| `docs/source/`                 | Instruksi awal dan deck brand                                                        |
+| `contracts/`                   | OpenAPI, JSON Schema, template import, kontrak Gate 3                                |
+| `planning/`                    | Backlog implementasi dan release-gate evidence contract                              |
+| `test/fixtures/contracts/`     | Fixture sintetis untuk contract/integration tests                                    |
+| `scripts/`                     | Validator starter, boundary check, migration guard                                   |
+| `apps/web`                     | Deployment unit student/admin web dan BFF (Next.js App Router)                       |
+| `apps/worker`                  | Deployment unit background worker                                                    |
+| `packages/contracts`           | Tipe kontrak bersama turunan `contracts/`                                            |
+| `packages/domain`              | Modul domain murni; tanpa UI dan tanpa vendor SDK                                    |
+| `packages/domain/src/identity` | Pure domain: session crypto, identity-linking policy (IDN-001)                       |
+| `packages/domain/src/access`   | Pure domain: validity window, grant status derivation, dedupe, checksum (ENT-001)    |
+| `packages/domain/src/commerce` | Pure domain: bundle composition, offer sale-state, SKU mapping resolution (COM-001)  |
+| `packages/domain/src/shared`   | Canonical-JSON checksum shared by access/ and commerce/ (promoted in COM-001)        |
+| `packages/db`                  | Drizzle schema dan migration (IDN-001: identity; ENT-001: access; COM-001: commerce) |
+| `packages/db/src/schema`       | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                              |
+| `packages/db/drizzle/`         | Migration SQL ter-generate — **commit**, jangan diedit manual                        |
+| `packages/ui`                  | Primitive design system student/admin                                                |
+| `packages/observability`       | Structured logging, redaksi, correlation ID, manifest evidence                       |
+| `packages/integrations`        | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03                          |
+| `packages/testing`             | Factory, clock injection, seeded randomness, provider fake                           |
+| `.gitleaks.toml`               | Konfigurasi Gitleaks repo-lokal (BD-08)                                              |
+| `.cache/gitleaks/`             | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan`              |
 
 Layout ini dikunci oleh **ADR-042** dan merekonsiliasi `CLAUDE.md`/BD-02 dengan `20_TECHNICAL_ARCHITECTURE.md` §5.
 

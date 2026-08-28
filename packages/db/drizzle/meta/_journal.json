@@ -15,6 +15,13 @@
       "when": 1787939747795,
       "tag": "0001_superb_killraven",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787942090170,
+      "tag": "0002_slippery_naoko",
+      "breakpoints": true
     }
   ]
 }
