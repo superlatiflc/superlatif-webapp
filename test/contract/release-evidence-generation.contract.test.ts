@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = path.join(import.meta.dirname, "..", "..");
 const GENERATOR = path.join(REPOSITORY_ROOT, "scripts", "generate-release-evidence.mjs");
-const OUTPUT_DIR = path.join(REPOSITORY_ROOT, ".release-evidence");
+const OUTPUT_DIR = path.join(REPOSITORY_ROOT, "release-evidence");
 
 function currentCommitSha(): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPOSITORY_ROOT, encoding: "utf8" }).trim();

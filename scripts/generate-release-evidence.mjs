@@ -82,7 +82,7 @@ const manifest = createReleaseEvidenceManifest({
     "operational record (superlatif-ops-evidence, BD-06) is populated by an operator, not this script.",
 });
 
-const outDir = path.join(root, ".release-evidence");
+const outDir = path.join(root, "release-evidence");
 fs.mkdirSync(outDir, { recursive: true });
 const outFile = path.join(outDir, `release-evidence-${manifest.releaseId}.json`);
 fs.writeFileSync(outFile, serializeReleaseEvidenceManifest(manifest));
