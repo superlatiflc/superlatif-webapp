@@ -13,10 +13,13 @@
   },
   "dependencies": {
     "@superlatif/contracts": "workspace:*",
-    "@superlatif/domain": "workspace:*",
     "@superlatif/db": "workspace:*",
-    "@superlatif/ui": "workspace:*",
+    "@superlatif/domain": "workspace:*",
+    "@superlatif/integrations": "workspace:*",
     "@superlatif/observability": "workspace:*",
-    "@superlatif/integrations": "workspace:*"
+    "@superlatif/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
   }
 }

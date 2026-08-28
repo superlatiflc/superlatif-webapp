@@ -1,0 +1,23 @@
+# Generated or vendored output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+pnpm-lock.yaml
+
+# Gate 1-4 source of truth: formatting these would create review noise on
+# documents whose wording is the contract.
+docs/
+contracts/
+planning/
+test/fixtures/
+
+# Delivered starter artifacts. Their wording and layout were shipped as
+# evidence; reformatting them would create diff noise on documents this
+# repository consumes rather than owns.
+CLAUDE.md
+START_HERE.md
+STARTER_VALIDATION.md
+PROMPT_PERTAMA_CLAUDE.md
+scripts/validate-starter.mjs

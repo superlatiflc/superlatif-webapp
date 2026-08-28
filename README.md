@@ -10,10 +10,10 @@ Belum ada perilaku domain, schema database, route API, atau adapter provider. Se
 
 ## Prasyarat
 
-| Alat | Versi terkunci | Sumber lock |
-|---|---|---|
-| Node.js | 24.x (dikembangkan pada `v24.15.0`) | `.nvmrc`, `engines` |
-| pnpm | 11.x (dikembangkan pada `11.20.0`) | `packageManager`, `engines` |
+| Alat    | Versi terkunci                      | Sumber lock                 |
+| ------- | ----------------------------------- | --------------------------- |
+| Node.js | 24.x (dikembangkan pada `v24.15.0`) | `.nvmrc`, `engines`         |
+| pnpm    | 11.x (dikembangkan pada `11.20.0`)  | `packageManager`, `engines` |
 
 Aktifkan pnpm melalui Corepack agar versinya tidak bergantung pada mesin:
 
@@ -37,41 +37,54 @@ pnpm run verify
 
 ## Script
 
-| Script | Status | Keterangan |
-|---|---|---|
-| `lint` | Aktif | Workspace dan import-boundary check (`scripts/check-workspace-boundaries.mjs`) |
-| `typecheck` | Aktif | `tsc` pada seluruh sembilan workspace project |
-| `build` | Aktif | `next build` untuk web, `tsc` emit untuk worker |
-| `db:check` | Aktif sebagai guard | `NOT_APPLICABLE` selama belum ada schema/migration; **gagal** begitu schema/migration muncul tanpa tooling BD-05 |
-| `validate:starter` | Aktif | Pemeriksaan kelengkapan starter bundle |
-| `verify` | Aktif | Komposisi seluruh pemeriksaan yang sudah ada |
-| `test:unit`, `test:contract`, `test:integration`, `test:e2e`, `test:a11y` | Dideklarasikan, belum dikonfigurasi | Dipasang oleh `GOV-002`; saat ini keluar dengan kode error dan menyebut task pemiliknya |
-| `db:generate`, `db:migrate` | Dideklarasikan, belum dikonfigurasi | Menunggu lock BD-05 pada P1 |
+| Script                      | Status                              | Keterangan                                                                                               |
+| --------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `format` / `format:check`   | Aktif                               | Prettier (ADR-043)                                                                                       |
+| `lint`                      | Aktif                               | ESLint flat config + workspace/import-boundary check                                                     |
+| `typecheck`                 | Aktif                               | `tsc` pada seluruh sembilan workspace project                                                            |
+| `build`                     | Aktif                               | `next build` untuk web, `tsc` emit untuk worker                                                          |
+| `test:unit`                 | Aktif                               | Vitest, project `unit`                                                                                   |
+| `test:contract`             | Aktif                               | Vitest, project `contract`                                                                               |
+| `contracts:validate`        | Aktif                               | OpenAPI parse + `$ref` + path parameter + secret scan; JSON Schema compile                               |
+| `check:determinism`         | Aktif                               | Menjalankan digest fixture pada dua proses terpisah dan membandingkannya                                 |
+| `fixtures:digest`           | Aktif                               | Mencetak digest korpus fixture dan sequence ter-seed                                                     |
+| `db:check`                  | Aktif sebagai guard                 | `NOT_APPLICABLE` selama belum ada schema/migration; **gagal** begitu keduanya muncul tanpa tooling BD-05 |
+| `validate:starter`          | Aktif                               | Pemeriksaan kelengkapan starter bundle                                                                   |
+| `verify`                    | Aktif                               | Komposisi seluruh pemeriksaan di atas; sama persis dengan yang dijalankan CI                             |
+| `test:integration`          | Dideklarasikan, belum dikonfigurasi | Menunggu P1 (slice persistence pertama)                                                                  |
+| `test:e2e`, `test:a11y`     | Dideklarasikan, belum dikonfigurasi | Playwright + axe menunggu P2 (permukaan UI nyata pertama)                                                |
+| `db:generate`, `db:migrate` | Dideklarasikan, belum dikonfigurasi | Menunggu lock BD-05 pada P1                                                                              |
 
 Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUDE.md` melarang menjalankan atau mengarang script yang belum ada; dependensi bootstrap harus dilaporkan.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` menjalankan langkah yang sama dengan `pnpm run verify`, memakai Node dari `.nvmrc` dan pnpm dari `packageManager`, dengan `--frozen-lockfile`.
+
+"Failures block merge" baru benar-benar berlaku setelah workflow ini dijadikan **required status check** pada branch default — itu setelan repository, bukan sesuatu yang bisa dijamin oleh file ini.
+
 ## Struktur
 
-| Path | Fungsi |
-|---|---|
-| `CLAUDE.md` | Instruksi persistent yang dibaca Claude Code |
-| `.claude/skills/` | Empat skill domain Superlatif |
-| `docs/gates/` | Dokumen canonical Gates 1–4 |
-| `docs/audit/` | Findings dan audit closure |
-| `docs/source/` | Instruksi awal dan deck brand |
-| `contracts/` | OpenAPI, JSON Schema, template import, kontrak Gate 3 |
-| `planning/` | Backlog implementasi dan release-gate evidence contract |
-| `test/fixtures/contracts/` | Fixture sintetis untuk contract/integration tests |
-| `scripts/` | Validator starter, boundary check, migration guard |
-| `apps/web` | Deployment unit student/admin web dan BFF (Next.js App Router) |
-| `apps/worker` | Deployment unit background worker |
-| `packages/contracts` | Tipe kontrak bersama turunan `contracts/` |
-| `packages/domain` | Modul domain murni; tanpa UI dan tanpa vendor SDK |
-| `packages/db` | Drizzle schema dan migration; kosong sampai BD-05 dikunci di P1 |
-| `packages/ui` | Primitive design system student/admin |
-| `packages/observability` | Structured logging, redaksi, correlation ID, manifest evidence |
-| `packages/integrations` | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03 |
-| `packages/testing` | Factory, clock injection, seeded randomness, provider fake |
+| Path                       | Fungsi                                                          |
+| -------------------------- | --------------------------------------------------------------- |
+| `CLAUDE.md`                | Instruksi persistent yang dibaca Claude Code                    |
+| `.claude/skills/`          | Empat skill domain Superlatif                                   |
+| `docs/gates/`              | Dokumen canonical Gates 1–4                                     |
+| `docs/audit/`              | Findings dan audit closure                                      |
+| `docs/source/`             | Instruksi awal dan deck brand                                   |
+| `contracts/`               | OpenAPI, JSON Schema, template import, kontrak Gate 3           |
+| `planning/`                | Backlog implementasi dan release-gate evidence contract         |
+| `test/fixtures/contracts/` | Fixture sintetis untuk contract/integration tests               |
+| `scripts/`                 | Validator starter, boundary check, migration guard              |
+| `apps/web`                 | Deployment unit student/admin web dan BFF (Next.js App Router)  |
+| `apps/worker`              | Deployment unit background worker                               |
+| `packages/contracts`       | Tipe kontrak bersama turunan `contracts/`                       |
+| `packages/domain`          | Modul domain murni; tanpa UI dan tanpa vendor SDK               |
+| `packages/db`              | Drizzle schema dan migration; kosong sampai BD-05 dikunci di P1 |
+| `packages/ui`              | Primitive design system student/admin                           |
+| `packages/observability`   | Structured logging, redaksi, correlation ID, manifest evidence  |
+| `packages/integrations`    | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03     |
+| `packages/testing`         | Factory, clock injection, seeded randomness, provider fake      |
 
 Layout ini dikunci oleh **ADR-042** dan merekonsiliasi `CLAUDE.md`/BD-02 dengan `20_TECHNICAL_ARCHITECTURE.md` §5.
 

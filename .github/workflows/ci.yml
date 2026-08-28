@@ -1,0 +1,81 @@
+# Continuous integration (GOV-002).
+#
+# Runs the static, unit, contract, determinism, and migration checks that
+# 27_QA_TESTING_AND_UAT_PLAN.md §3 marks mandatory on merge. Every step is the
+# same command a developer runs locally, so CI cannot drift from `pnpm verify`.
+#
+# "Failures block merge" is only true once this workflow is configured as a
+# required status check on the default branch. That is a repository setting,
+# not something this file can assert.
+#
+# Hardening owned by GOV-003: pin these actions to commit SHAs and add the
+# Gitleaks secret-scanning step (BD-08).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@v4
+
+      - name: Install pnpm from the version pinned in package.json
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node from the version pinned in .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies without letting the lockfile drift
+        run: pnpm install --frozen-lockfile
+
+      - name: Formatting
+        run: pnpm run format:check
+
+      - name: Lint and architecture boundaries
+        run: pnpm run lint
+
+      - name: Types
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Unit tests
+        run: pnpm run test:unit
+
+      - name: Contract tests
+        run: pnpm run test:contract
+
+      - name: Contract artifact validation
+        run: pnpm run contracts:validate
+
+      - name: Fixture determinism
+        run: pnpm run check:determinism
+
+      - name: Migration drift guard
+        run: pnpm run db:check
+
+      - name: Starter bundle integrity
+        run: pnpm run validate:starter

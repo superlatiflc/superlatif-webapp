@@ -106,12 +106,19 @@ Jika ada kontradiksi source of truth, berhenti sebelum semantic implementation. 
 ### Wave CC-0 — Repository bootstrap
 
 1. `GOV-001` repository layout dan package/runtime lock.
-2. `GOV-002` CI quality gates.
-3. `GOV-003` config/env validation.
-4. `GOV-004` contract/fixture validator.
-5. `OPS-001` structured logging/correlation/error tracking skeleton.
+2. `GOV-002` CI quality gates, deterministic test harness, dan contract/fixture validator.
+3. `GOV-003` config/env validation, secret boundary, dan feature-flag convention.
+4. `GOV-004` baseline observability, correlation ID, redaksi, dan evidence capture.
 
 Tidak membuat provider live connection pada wave ini.
+
+> **Koreksi RC1 (disetujui founder, 28 Agustus 2026).** Daftar di atas sebelumnya
+> menempatkan contract/fixture validator pada `GOV-004` dan skeleton observability
+> pada `OPS-001`. Keduanya bertentangan dengan `planning/implementation-backlog.json`,
+> yang merupakan kontrak task machine-readable dan divalidasi CI. Backlog menang:
+> contract/fixture validator adalah bagian acceptance `GOV-002`, `GOV-004` memiliki
+> observability dan evidence capture, dan **`OPS-001` tetap berada di P6** dengan
+> dependensi `ADM-003` dan `ANL-001`. `OPS-001` tidak boleh dikerjakan pada Wave CC-0.
 
 ### Wave CC-1 — Platform foundation
 

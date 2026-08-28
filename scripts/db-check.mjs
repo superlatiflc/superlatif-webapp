@@ -51,7 +51,10 @@ function findTriggers() {
       triggers.push({ file: rel, reason: "migration tool configuration" });
       continue;
     }
-    if (base.endsWith(".sql") && segments.some((segment) => segment === "migrations" || segment === "drizzle")) {
+    if (
+      base.endsWith(".sql") &&
+      segments.some((segment) => segment === "migrations" || segment === "drizzle")
+    ) {
       triggers.push({ file: rel, reason: "SQL migration file" });
       continue;
     }
