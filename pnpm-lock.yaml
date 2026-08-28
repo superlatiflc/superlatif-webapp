@@ -89,6 +89,12 @@ importers:
       '@superlatif/domain':
         specifier: workspace:*
         version: link:../domain
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1(ajv@8.20.0)
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(postgres@3.4.9)

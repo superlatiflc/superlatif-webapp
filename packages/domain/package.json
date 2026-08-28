@@ -6,7 +6,8 @@
   "description": "Pure domain modules: identity, commerce, access, programs, content, schedules, questions, exams, attempts, results, notifications. No UI, no vendor SDK.",
   "exports": {
     ".": "./src/index.ts",
-    "./identity": "./src/identity/index.ts"
+    "./identity": "./src/identity/index.ts",
+    "./access": "./src/access/index.ts"
   },
   "types": "./src/index.ts",
   "scripts": {
