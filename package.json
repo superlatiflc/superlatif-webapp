@@ -28,7 +28,8 @@
     "db:migrate": "node scripts/not-configured.mjs db:migrate \"BD-05 lock at P1\"",
     "db:check": "node scripts/db-check.mjs",
     "validate:starter": "node scripts/validate-starter.mjs",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run secrets:scan && pnpm run test:unit && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run secrets:scan && pnpm run test:unit && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter",
+    "evidence:generate": "node scripts/generate-release-evidence.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

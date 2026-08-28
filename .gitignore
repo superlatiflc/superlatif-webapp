@@ -18,6 +18,7 @@ test-results/
 # Logs and temporary files
 *.log
 .cache/
+release-evidence/
 .tmp/
 tmp/
 

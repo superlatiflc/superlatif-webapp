@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@superlatif/contracts": "workspace:*"
+    "@superlatif/contracts": "workspace:*",
+    "@superlatif/observability": "workspace:*"
   }
 }
