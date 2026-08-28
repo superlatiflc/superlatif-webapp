@@ -22,6 +22,13 @@
       "when": 1787942090170,
       "tag": "0002_slippery_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787944248152,
+      "tag": "0003_lean_jane_foster",
+      "breakpoints": true
     }
   ]
 }

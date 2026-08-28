@@ -9,6 +9,7 @@
     "./identity": "./src/identity/index.ts",
     "./access": "./src/access/index.ts",
     "./commerce": "./src/commerce/index.ts",
+    "./authorization": "./src/authorization/index.ts",
     "./shared": "./src/shared/index.ts"
   },
   "types": "./src/index.ts",

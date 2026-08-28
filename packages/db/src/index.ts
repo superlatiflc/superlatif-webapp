@@ -17,3 +17,4 @@ export * as schema from "./schema/index.ts";
 export * as identity from "./identity/index.ts";
 export * as access from "./access/index.ts";
 export * as commerce from "./commerce/index.ts";
+export * as authorization from "./authorization/index.ts";
