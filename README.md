@@ -46,6 +46,7 @@ pnpm run verify
 | `test:unit`                 | Aktif                               | Vitest, project `unit`                                                                                   |
 | `test:contract`             | Aktif                               | Vitest, project `contract`                                                                               |
 | `contracts:validate`        | Aktif                               | OpenAPI parse + `$ref` + path parameter + secret scan; JSON Schema compile                               |
+| `secrets:scan`              | Aktif                               | Gitleaks (ter-pin versi + checksum/digest, BD-08) terhadap working tree                                  |
 | `check:determinism`         | Aktif                               | Menjalankan digest fixture pada dua proses terpisah dan membandingkannya                                 |
 | `fixtures:digest`           | Aktif                               | Mencetak digest korpus fixture dan sequence ter-seed                                                     |
 | `db:check`                  | Aktif sebagai guard                 | `NOT_APPLICABLE` selama belum ada schema/migration; **gagal** begitu keduanya muncul tanpa tooling BD-05 |
@@ -63,28 +64,39 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 
 "Failures block merge" baru benar-benar berlaku setelah workflow ini dijadikan **required status check** pada branch default — itu setelan repository, bukan sesuatu yang bisa dijamin oleh file ini.
 
+## Configuration and secrets (GOV-003)
+
+- `.env.example` adalah satu-satunya sumber nama variabel; `packages/contracts/src/env-spec.ts` mendeklarasikan tipe, tingkat keharusan (`required` / `optional-default` / `optional-no-default`), dan status secret untuk **setiap** variabel — jumlahnya diuji identik dengan `.env.example` (`env.test.ts`).
+- `loadCoreEnv()` divalidasi **fail-closed** saat startup (`apps/web/instrumentation.ts`, `apps/worker/src/index.ts`): variabel wajib yang hilang atau tidak valid membuat proses gagal start dengan daftar lengkap pelanggaran, tidak pernah dengan tebakan diam-diam.
+- Variabel bertanda `secret: true` tidak pernah memiliki default yang di-hardcode di kode — diperiksa mesin, bukan hanya konvensi.
+- Feature flag (`packages/contracts/src/flags.ts`) hanya bisa menjawab hidup/mati (`FeatureFlag.read(): boolean`); tidak ada field yang bisa membawa role/permission/bypass — dibuktikan lewat `@ts-expect-error` di `flags.test.ts`. Flag bukan kontrol otorisasi.
+- Kedelapan flag produksi-sensitif (`FEATURE_*`, `SKD_PRODUCTION_ACTIVATION`, `PRODUCTION_WRITES_ENABLED`) default `false` bila tidak diset — diperiksa di dua lapis: `scripts/validate-starter.mjs` (isi `.env.example`) dan `env.test.ts` (skema).
+- Secret scanning memakai **Gitleaks 8.30.1**, di-download dan diverifikasi checksum SHA-256-nya sendiri oleh `scripts/install-gitleaks.mjs` (bukan dipercayakan ke Action pihak ketiga) sebelum biner dijalankan. Lihat ADR-044.
+
 ## Struktur
 
-| Path                       | Fungsi                                                          |
-| -------------------------- | --------------------------------------------------------------- |
-| `CLAUDE.md`                | Instruksi persistent yang dibaca Claude Code                    |
-| `.claude/skills/`          | Empat skill domain Superlatif                                   |
-| `docs/gates/`              | Dokumen canonical Gates 1–4                                     |
-| `docs/audit/`              | Findings dan audit closure                                      |
-| `docs/source/`             | Instruksi awal dan deck brand                                   |
-| `contracts/`               | OpenAPI, JSON Schema, template import, kontrak Gate 3           |
-| `planning/`                | Backlog implementasi dan release-gate evidence contract         |
-| `test/fixtures/contracts/` | Fixture sintetis untuk contract/integration tests               |
-| `scripts/`                 | Validator starter, boundary check, migration guard              |
-| `apps/web`                 | Deployment unit student/admin web dan BFF (Next.js App Router)  |
-| `apps/worker`              | Deployment unit background worker                               |
-| `packages/contracts`       | Tipe kontrak bersama turunan `contracts/`                       |
-| `packages/domain`          | Modul domain murni; tanpa UI dan tanpa vendor SDK               |
-| `packages/db`              | Drizzle schema dan migration; kosong sampai BD-05 dikunci di P1 |
-| `packages/ui`              | Primitive design system student/admin                           |
-| `packages/observability`   | Structured logging, redaksi, correlation ID, manifest evidence  |
-| `packages/integrations`    | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03     |
-| `packages/testing`         | Factory, clock injection, seeded randomness, provider fake      |
+| Path                       | Fungsi                                                                  |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `CLAUDE.md`                | Instruksi persistent yang dibaca Claude Code                            |
+| `.claude/skills/`          | Empat skill domain Superlatif                                           |
+| `docs/gates/`              | Dokumen canonical Gates 1–4                                             |
+| `docs/audit/`              | Findings dan audit closure                                              |
+| `docs/source/`             | Instruksi awal dan deck brand                                           |
+| `contracts/`               | OpenAPI, JSON Schema, template import, kontrak Gate 3                   |
+| `planning/`                | Backlog implementasi dan release-gate evidence contract                 |
+| `test/fixtures/contracts/` | Fixture sintetis untuk contract/integration tests                       |
+| `scripts/`                 | Validator starter, boundary check, migration guard                      |
+| `apps/web`                 | Deployment unit student/admin web dan BFF (Next.js App Router)          |
+| `apps/worker`              | Deployment unit background worker                                       |
+| `packages/contracts`       | Tipe kontrak bersama turunan `contracts/`                               |
+| `packages/domain`          | Modul domain murni; tanpa UI dan tanpa vendor SDK                       |
+| `packages/db`              | Drizzle schema dan migration; kosong sampai BD-05 dikunci di P1         |
+| `packages/ui`              | Primitive design system student/admin                                   |
+| `packages/observability`   | Structured logging, redaksi, correlation ID, manifest evidence          |
+| `packages/integrations`    | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03             |
+| `packages/testing`         | Factory, clock injection, seeded randomness, provider fake              |
+| `.gitleaks.toml`           | Konfigurasi Gitleaks repo-lokal (BD-08)                                 |
+| `.cache/gitleaks/`         | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan` |
 
 Layout ini dikunci oleh **ADR-042** dan merekonsiliasi `CLAUDE.md`/BD-02 dengan `20_TECHNICAL_ARCHITECTURE.md` §5.
 

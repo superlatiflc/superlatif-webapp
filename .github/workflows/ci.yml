@@ -1,15 +1,21 @@
-# Continuous integration (GOV-002).
+# Continuous integration (GOV-002, hardened in GOV-003).
 #
-# Runs the static, unit, contract, determinism, and migration checks that
-# 27_QA_TESTING_AND_UAT_PLAN.md §3 marks mandatory on merge. Every step is the
-# same command a developer runs locally, so CI cannot drift from `pnpm verify`.
+# Runs the static, unit, contract, determinism, secret-scanning, and
+# migration checks that 27_QA_TESTING_AND_UAT_PLAN.md §3 marks mandatory on
+# merge. Every step is the same command a developer runs locally
+# (`pnpm run verify`), so CI cannot drift from what ran on this machine.
 #
 # "Failures block merge" is only true once this workflow is configured as a
 # required status check on the default branch. That is a repository setting,
 # not something this file can assert.
 #
-# Hardening owned by GOV-003: pin these actions to commit SHAs and add the
-# Gitleaks secret-scanning step (BD-08).
+# Third-party actions are pinned to a commit SHA, not a floating tag, cross-
+# checked on 2026-08-28 against both the tag's direct ref and GitHub's
+# /commits/<tag> resolution:
+#   actions/checkout@v4      -> 11d5960a326750d5838078e36cf38b85af677262
+#   pnpm/action-setup@v4     -> b906affcce14559ad1aafd4ab0e942779e9f58b1
+#   actions/setup-node@v4    -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+# Bumping a pin means re-resolving the SHA the same way, not typing one in.
 
 name: CI
 
@@ -36,13 +42,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the commit under test
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install pnpm from the version pinned in package.json
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Install Node from the version pinned in .nvmrc
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -61,6 +67,9 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Secret scan (Gitleaks, pinned by version + checksum - BD-08)
+        run: pnpm run secrets:scan
 
       - name: Unit tests
         run: pnpm run test:unit
