@@ -31,3 +31,19 @@ export {
   listResolvableGrantsForUser,
   recordGrantEventAndInvalidate,
 } from "./effective-access-service.ts";
+
+export {
+  ManualChangeAlreadyDecidedError,
+  ManualChangeNotAuthorizedError,
+  ManualChangeRequestNotFoundError,
+  decideManualChange,
+  getManualChangeRequest,
+  requestManualChange,
+  type ChangeRequestRow,
+  type ChangeRequestWithStatus,
+  type DecideManualChangeInput,
+  type DecisionRow,
+  type RequestManualChangeInput,
+  type RequestManualGrantInput,
+  type RequestManualRevocationInput,
+} from "./manual-change-service.ts";

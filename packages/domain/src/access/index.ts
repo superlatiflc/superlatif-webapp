@@ -58,3 +58,11 @@ export {
   type ParsedAttemptAllowanceTemplate,
   type ParsedStacking,
 } from "./policy-config-parsing.ts";
+
+export {
+  deriveManualChangeStatus,
+  type ManualChangeDecisionFacts,
+  type ManualChangeDecisionOutcome,
+  type ManualChangeStatus,
+  type ManualChangeType,
+} from "./manual-change.ts";
