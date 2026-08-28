@@ -1,0 +1,22 @@
+{
+  "name": "@superlatif/testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test factories, injected clock, seeded randomness, fixture loader, provider fakes.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@superlatif/contracts": "workspace:*",
+    "@superlatif/domain": "workspace:*",
+    "@superlatif/db": "workspace:*",
+    "@superlatif/ui": "workspace:*",
+    "@superlatif/observability": "workspace:*",
+    "@superlatif/integrations": "workspace:*"
+  }
+}

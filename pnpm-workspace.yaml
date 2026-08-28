@@ -1,0 +1,5 @@
+# Superlatif Web App — workspace boundaries (GOV-001, ADR-042).
+# Layout mengunci BD-02 dan merekonsiliasi 20_TECHNICAL_ARCHITECTURE.md §5.
+packages:
+  - "apps/*"
+  - "packages/*"

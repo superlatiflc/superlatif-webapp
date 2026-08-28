@@ -1,0 +1,21 @@
+{
+  "name": "@superlatif/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Student and admin web/BFF deployment unit (ADR-007, ADR-008).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5"
+  }
+}

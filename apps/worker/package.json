@@ -1,0 +1,11 @@
+{
+  "name": "@superlatif/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Background worker deployment unit: outbox, projections, scoring, import, notifications (ADR-007, ADR-012).",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

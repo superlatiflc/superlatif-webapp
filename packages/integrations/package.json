@@ -1,0 +1,19 @@
+{
+  "name": "@superlatif/integrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vendor adapters at the boundary: wordpress-sejoli, object-storage, messaging. Empty until OD-01/OD-02/OD-03 evidence exists.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@superlatif/contracts": "workspace:*",
+    "@superlatif/domain": "workspace:*",
+    "@superlatif/observability": "workspace:*"
+  }
+}

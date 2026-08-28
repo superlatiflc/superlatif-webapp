@@ -1,0 +1,17 @@
+{
+  "name": "@superlatif/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure domain modules: identity, commerce, access, programs, content, schedules, questions, exams, attempts, results, notifications. No UI, no vendor SDK.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@superlatif/contracts": "workspace:*"
+  }
+}

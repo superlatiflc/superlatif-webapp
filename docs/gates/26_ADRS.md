@@ -58,9 +58,9 @@
 
 ## ADR-008 — Next.js App Router web layer
 
-**Status:** Provisional  
-**Decision:** Next.js 16 App Router for student/admin web and BFF.  
-**Consequences:** Productive full-stack TypeScript and Vercel compatibility; version locked at kickoff and exam hot path must pass latency/load test.
+**Status:** Accepted (version-locked at kickoff by ADR-042)  
+**Decision:** Next.js 16 App Router for student/admin web and BFF. Kickoff lock resolved the provisional major to **Next.js 16.3.3**, recorded in `pnpm-lock.yaml`.  
+**Consequences:** Productive full-stack TypeScript and Vercel compatibility; exam hot path must still pass latency/load test before the hosting decision in OD-03 is closed. Hosting provider remains provisional; only the framework version is locked.
 
 ## ADR-009 — PostgreSQL transactional source of truth
 
@@ -252,6 +252,58 @@
 ## ADR-041 — Semantic validation melengkapi JSON Schema
 
 **Status:** Accepted. **Decision:** Invariant lintas-elemen yang tidak dapat diekspresikan portabel oleh JSON Schema—termasuk jumlah durasi section—dideklarasikan sebagai semantic invariant dan wajib diuji oleh publication validator/contract fixtures.
+
+## ADR-042 — P0 kickoff lock: toolchain, workspace layout, and delivery guards
+
+**Status:** Accepted  
+**Date:** 28 August 2026  
+**Supersedes nothing. Locks:** BD-01, BD-02, BD-03, BD-06, BD-07, BD-08 from `GATE_4_READINESS_REGISTER.md` §4.
+
+### Context
+
+GOV-001 cannot create a workspace without resolving one conflict and several open kickoff decisions. `CLAUDE.md` and `GATE_4_READINESS_REGISTER.md` BD-02 name the packages `domain|db|contracts|ui|testing`, while `20_TECHNICAL_ARCHITECTURE.md` §5 names `domain/<subdomain>`, `database`, `contracts`, `observability`, and `integrations/*`. Left unresolved, the difference becomes a cross-repository rename during P1.
+
+### Decision
+
+**Runtime and package manager (BD-01).** Node 24 (Active LTS; local `v24.15.0`) and pnpm 11 (`11.20.0`), pinned through `packageManager`, `engines`, and `.nvmrc`. Corepack is the intended activation path so the pnpm version does not depend on a developer machine.
+
+**Framework version.** `next@16.3.3`, `react@19.2.8`, `react-dom@19.2.8`, taken from the real installation and recorded in `pnpm-lock.yaml`. This closes the "provisional until kickoff version lock" qualifier on ADR-008. The major matches the `Next.js 16` written in `CLAUDE.md`; it was verified against the registry rather than assumed.
+
+**TypeScript.** Pinned to `5.9.3`, not the `latest` tag. At kickoff the `latest` tag is TypeScript 7.0.2, a compiler re-implemented in Go. Adopting a newly-rewritten compiler at the foundation would place unverified toolchain risk under every downstream task with no benefit to P0. Migration to TypeScript 6 or 7 is a separate, evaluated decision and requires its own ADR. `@types/node` is pinned to the `24.x` line so the types track the locked runtime major.
+
+**Workspace layout (BD-02).** The superset of both sources is created at bootstrap:
+
+```text
+apps/web  apps/worker
+packages/domain  db  contracts  ui  testing  observability  integrations
+```
+
+Mapping: `20 §5 packages/database` → `packages/db`; the domain subdomains in `20 §5` (`identity/`, `commerce/`, `access/`, `programs/`, `content/`, `schedules/`, `questions/`, `exams/`, `attempts/`, `results/`, `notifications/`) are folders **inside** `packages/domain`, not separate packages; the `integrations` vendor adapters (`wordpress-sejoli/`, `object-storage/`, `messaging/`) are folders inside `packages/integrations`. Those folders are created by the backlog task that owns each adapter, so that no empty scaffolding claims a boundary nobody has designed yet. `ui` and `testing` from BD-02 are kept.
+
+**Test tools (BD-03).** Vitest for unit/contract/integration, Playwright for E2E, axe-core through Playwright for accessibility. GOV-001 reserves the script names only; GOV-002 configures the runners. Determinism uses injected clock and seeded randomness driven by the existing `TEST_FIXTURE_SEED`.
+
+**Code style tooling.** Deliberately **not** decided here. A formatter and a code-style linter are new dependencies whose rationale belongs to GOV-002 under the dependency rule in `29_CLAUDE_CODE_EXECUTION_PLAN.md` §6. At P0 the `lint` script performs architectural linting only.
+
+**Evidence location (BD-06).** GitHub Actions artifacts for CI evidence, plus a separate private repository `superlatif-ops-evidence` as the restricted operational record, keyed by release ID and commit SHA, restricted to founder and engineering lead. That record must never contain secrets, PII, answer payloads, or raw webhook bodies, consistent with `24_AUTH_RBAC_SECURITY_AND_PRIVACY.md` §17 and `30_LAUNCH_AND_OPERATIONS_RUNBOOK.md` §2.
+
+**Git host and CI (BD-07).** GitHub and GitHub Actions, with required status checks on `main`.
+
+**Secret scanning (BD-08).** Gitleaks as the primary scanner, pinned by version and checksum/digest, with a repository-local configuration. GitHub Secret Scanning and Push Protection may act as an additional layer where available, never as a replacement. Gitleaks is the "approved scanner" contemplated by `27_QA_TESTING_AND_UAT_PLAN.md` §4.
+
+### Enforcement
+
+Two guards make the decisions falsifiable instead of aspirational:
+
+- `scripts/check-workspace-boundaries.mjs` fails the build on a layering violation, on an import that is used but not declared, and on any external runtime dependency inside `packages/domain`. This is how ADR-007 and the `20 §5` rule are enforced by machine rather than by convention.
+- `scripts/db-check.mjs` reports `NOT_APPLICABLE` only while no implementation schema or migration exists, and fails as soon as one appears while the BD-05 migration tooling is still unconfigured. A permanent no-op is therefore impossible.
+
+### Consequences
+
+Several packages stay empty until their owning backlog task arrives. They are still covered by `typecheck` so they cannot rot unnoticed, and they carry no placeholder tests, because a test without behaviour proves nothing. The `db:generate`, `db:migrate`, and `test:*` scripts are declared but exit non-zero with the owning task named, so an unconfigured step can never be mistaken for a passing one.
+
+### Validation
+
+Fresh-checkout install, build, and typecheck across all nine workspace projects; negative tests proving the boundary guard and the migration guard both fail when violated. BD-04 and BD-05 remain open by design; their lock point is P1.
 
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 

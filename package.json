@@ -1,0 +1,30 @@
+{
+  "name": "superlatif-webapp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Superlatif Web App — program-centric EdTech platform (Kedinasan/SKD first).",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "pnpm": ">=11.20.0 <12"
+  },
+  "scripts": {
+    "lint": "node scripts/check-workspace-boundaries.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r --if-present build",
+    "test:unit": "node scripts/not-configured.mjs test:unit GOV-002",
+    "test:contract": "node scripts/not-configured.mjs test:contract GOV-002",
+    "test:integration": "node scripts/not-configured.mjs test:integration GOV-002",
+    "test:e2e": "node scripts/not-configured.mjs test:e2e GOV-002",
+    "test:a11y": "node scripts/not-configured.mjs test:a11y GOV-002",
+    "db:generate": "node scripts/not-configured.mjs db:generate \"BD-05 lock at P1\"",
+    "db:migrate": "node scripts/not-configured.mjs db:migrate \"BD-05 lock at P1\"",
+    "db:check": "node scripts/db-check.mjs",
+    "validate:starter": "node scripts/validate-starter.mjs",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run db:check && pnpm run validate:starter"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}
