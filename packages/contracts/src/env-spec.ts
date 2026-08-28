@@ -78,7 +78,10 @@ export const ENV_SPEC = {
     type: "url",
     requirement: "optional-no-default",
     secret: true,
-    description: "PostgreSQL connection string. Carries credentials.",
+    description:
+      "PostgreSQL connection string. Carries credentials. Consumed by @superlatif/db's " +
+      "createDatabaseClient (IDN-001) and by db:migrate; still not required for apps/web or " +
+      "apps/worker to start, since no HTTP route or job calls the database client yet.",
   },
   DATABASE_READ_URL: {
     type: "url",
@@ -167,7 +170,9 @@ export const ENV_SPEC = {
     requirement: "optional-default",
     defaultValue: "43200",
     secret: false,
-    description: "Session absolute lifetime.",
+    description:
+      "Session absolute lifetime, in seconds. Consumed by " +
+      "@superlatif/db's performDeterministicLogin (IDN-001) via DeterministicLoginDeps.sessionTtlSeconds.",
   },
   PASSWORD_RESET_TTL_SECONDS: {
     type: "integer",
