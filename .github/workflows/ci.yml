@@ -18,6 +18,17 @@
 #   actions/setup-node@v4      -> 49933ea5288caeca8642d1e84afbd3f7d6820020
 #   actions/upload-artifact@v4 -> ea165f8d65b6e75b540449e92b4886f43607fa02
 # Bumping a pin means re-resolving the SHA the same way, not typing one in.
+#
+# IDN-001 adds a real Postgres service container, pinned the same way (image
+# digest from Docker Hub's manifest list, checked 2026-08-28):
+#   postgres:18 -> sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+# Used only to prove migrations apply cleanly to production-representative
+# Postgres (27_QA_TESTING_AND_UAT_PLAN.md §4 staging parity, §8 "apply pada
+# database kosong"). The credentials below are synthetic, exist only inside
+# this ephemeral container, and are never valid anywhere else - not a secret
+# by CLAUDE.md's definition, the same way TEST_FIXTURE_SEED is not one.
+# test:integration (packages/db's own suite) runs against pglite instead,
+# fast and Docker-free - see packages/db/src/test-client.ts.
 
 name: CI
 
@@ -42,6 +53,20 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+        env:
+          POSTGRES_USER: superlatif_ci
+          POSTGRES_PASSWORD: superlatif_ci_only_never_used_elsewhere
+          POSTGRES_DB: superlatif_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U superlatif_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out the commit under test
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -76,6 +101,9 @@ jobs:
       - name: Unit tests
         run: pnpm run test:unit
 
+      - name: Integration tests (pglite, no Docker needed)
+        run: pnpm run test:integration
+
       - name: Contract tests
         run: pnpm run test:contract
 
@@ -87,6 +115,11 @@ jobs:
 
       - name: Migration drift guard
         run: pnpm run db:check
+
+      - name: Apply migrations to a real Postgres (parity check, dok 27 §4/§8)
+        run: pnpm run db:migrate
+        env:
+          DATABASE_URL: postgresql://superlatif_ci:superlatif_ci_only_never_used_elsewhere@localhost:5432/superlatif_ci
 
       - name: Starter bundle integrity
         run: pnpm run validate:starter

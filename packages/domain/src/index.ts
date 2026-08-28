@@ -1,10 +1,11 @@
 // @superlatif/domain
 //
-// Pure domain modules: identity, commerce, access, programs, content, schedules, questions, exams, attempts, results, notifications. No UI, no vendor SDK.
+// Pure domain modules: identity, commerce, access, programs, content,
+// schedules, questions, exams, attempts, results, notifications. No UI, no
+// vendor SDK - node: builtins are fine (see identity/session.ts), a package
+// from npm is not.
 //
-// Owning backlog task: P1 onward.
-// GOV-001 only establishes the package boundary; behaviour is added by the
-// owning task. Do not add domain semantics, provider behaviour, or schema here
-// without the backlog entry that owns it.
+// Owning backlog task per subdomain; behaviour is added only by the task
+// that owns it. identity/ is owned by IDN-001 onward.
 
-export {};
+export * as identity from "./identity/index.ts";

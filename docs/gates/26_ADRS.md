@@ -379,6 +379,46 @@ An early version of the CI evidence generator recorded a check result under the 
 
 Any future addition to `contracts/analytics-event-catalog.json`'s `prohibitedProperties` is denylisted in operational logs automatically, unless a comparably-reasoned override is added to `OPERATIONAL_LOG_OVERRIDES` - the bar for adding one should stay high and each one should cite the specific dok 24 §17 clause that permits it. Evidence-manifest field names should be chosen to describe outcomes, not to echo script/tool names, precisely because tool names sometimes contain words the redaction rules treat as sensitive by design.
 
+## ADR-046 — IDN-001: identity/session schema scope, merge-key policy, and test database strategy
+
+**Status:** Accepted  
+**Date:** 28 August 2026  
+**Decided during:** IDN-001 (first implementation task after the P0 governance foundation; first database migration, locking BD-05).
+
+### Schema scope: narrower than the Gate 3 contract artifact
+
+`contracts/drizzle-schema.ts` (a Gate 3 review artifact, not a runtime module) includes `roles`, `permissions`, `user_roles`, `role_permissions`, `consent_records`, and `users.date_of_birth`/`guardian_consent_state` in its identity section. IDN-001 implements only `users`, `external_identities`, `user_sessions`, and `identity_conflicts` - the four tables that map 1:1 onto IDN-001's three backlog acceptance criteria (identity mapping, session revocation, deterministic/audited login). RBAC tables are `IDN-004`'s explicit scope ("Enforce RBAC, object scope, and privileged-action audit"); building them now would be exactly the "generating schema first" anti-pattern `29_CLAUDE_CODE_EXECUTION_PLAN.md` §13 warns against for a concern this task does not own. Consent/guardian fields are deferred to whichever task takes up ADR-036's instruction to model consent before legal policy freeze - IDN-001's own acceptance criteria never mention consent, and `21_ERD_AND_DATA_DICTIONARY.md` §3's own `users` definition (ERD outranks the Gate 3 schema artifact in `CLAUDE.md`'s source-of-truth order) does not list those columns either.
+
+`users.email_normalized` and `users.phone_e164` deliberately carry no unique constraint. `23_SEJOLI_WORDPRESS_INTEGRATION.md` §4 rule 3 requires an email/phone collision to become a reviewable conflict case; a unique constraint would make that case impossible to represent, since two users could never (even temporarily, pending resolution) share a contact value.
+
+### Merge-key policy: (provider, externalSubject) only, structurally
+
+`packages/domain/src/identity/identity-linking.ts`'s `evaluateIdentityLink` has exactly one code path that returns `link_existing`, and it is gated on an already-verified `(provider, externalSubject)` match. An email or phone match against a different user can only ever produce a `conflict` decision - never an automatic link or merge. This is the direct implementation of the founder instruction "jangan pakai email sebagai satu-satunya identity merge key" and of `29_CLAUDE_CODE_EXECUTION_PLAN.md` §13's anti-pattern list. `identity-linking.test.ts` and `service.integration.test.ts` both assert this by injecting a real collision and checking the outcome is `conflict`, not `link_existing`.
+
+### Session model: hash-only, timing-safe, fixation-proof by construction
+
+`user_sessions.secret_hash` is the only place a session secret is ever stored (SHA-256 of a 256-bit random value - sufficient because the input is already high-entropy, unlike a human password). `secretMatchesHash` uses `timingSafeEqual`. Session fixation is prevented structurally rather than by convention: `DeterministicLoginInput` (the only way to create a session) has no field for a caller-supplied session or secret value, so there is no code path by which a pre-chosen identifier could be honored. `evaluateSessionValidity` checks revocation before expiry and is server-clock-driven (`now` injected, never read from a request).
+
+### Test database strategy: pglite for speed, a real Postgres service container in CI for parity
+
+`packages/db/src/test-client.ts` uses `@electric-sql/pglite` (embedded WASM Postgres) to run the exact same generated migration SQL and exercise real constraint/FK/unique-index behaviour, with no Docker or live Postgres connection required - verified during design by confirming `drizzle-kit generate --dialect postgresql` produces standard, driver-independent SQL regardless of which client later applies it. This keeps `test:integration` fast and runnable on a machine with no local Postgres (this one, notably: verified there was neither Docker nor a local Postgres install available in the implementing session). `ci.yml` separately stands up a real `postgres:18` service container (pinned by image digest) and runs `db:migrate` against it, satisfying `27_QA_TESTING_AND_UAT_PLAN.md` §4's staging-parity principle and §8's "apply pada database kosong" - pglite is fast and constraint-accurate but is not byte-identical to production Postgres, so this is not left as the only migration-apply evidence.
+
+### `db:check` rewritten as a real drift guard
+
+GOV-001's `db:check` deliberately refused to become a permanent no-op: it reported `NOT_APPLICABLE` only while no schema existed, and failed the moment one appeared, naming the exact replacement contract ("generated migration must match the schema"). This task honors that contract: `scripts/db-check.mjs` now runs `drizzle-kit generate` and compares a content hash of `packages/db/drizzle/` before and after. A difference means the schema changed without `db:generate` being run and committed. This compares disk content rather than `git status`, deliberately: `git status` would also flag a migration that is staged-but-not-yet-committed as "drift" during ordinary local development, which is a different condition than the one this guard exists to catch.
+
+### "Audited" without a new audit-log table
+
+IDN-001's acceptance criterion "Login mapping is deterministic and audited" is satisfied by structured, correlation-ID-tagged logging (`identity.login_mapped` / `identity.link_conflict`) through the GOV-004 observability baseline, plus the durable `identity_conflicts` record for the one outcome that genuinely needs a queryable row. `packages/db` is not allowed to depend on `@superlatif/observability` under the ADR-042 layering matrix (`db → [contracts, domain]` only), so `service.ts` accepts a minimal structural `AuditLogger` interface (`info`/`warn`) rather than importing the concrete `Logger` type - any real `@superlatif/observability` logger satisfies it, without `packages/db` gaining a new package dependency for two log calls. A generic cross-domain `audit_log` table (`28_IMPLEMENTATION_ROADMAP.md` Phase 1's own separate "append-oriented audit log" deliverable) is left to whichever task actually owns it; IDN-001's own tests do not require one.
+
+### A layering-checker bug this task exposed and fixed
+
+`scripts/check-workspace-boundaries.mjs`'s "no vendor SDK" rule for `packages/domain` had never been exercised against a test file, because `packages/domain` had no `*.test.ts` files before this task. Adding the first one (`vitest` import) tripped the rule immediately - `packages/domain` would have been permanently untestable under the original check. Fixed by exempting `*.test.ts` files from the external-import ban (a test framework is dev tooling declared in the root `package.json`, not a production runtime dependency of the package under test); the rule still correctly rejects a vendor import in a non-test file, and `test/contract/workspace-boundaries.contract.test.ts` now covers both cases so this class of regression cannot reappear silently.
+
+### Consequences
+
+`packages/db` and `packages/domain/src/identity` are the first packages in this repository with real, non-placeholder implementations. Future domain areas (commerce, access, programs, ...) are expected to follow the same shape: pure decision logic in `packages/domain`, driver-agnostic persistence in `packages/db`, `*.integration.test.ts` for real-engine-backed tests. `createDatabaseClient` (the production postgres.js connection factory) has not yet been exercised against a live database in any session - only proven correct by type-checking and by drizzle-kit's own separate connection logic in the CI migration step. The first task that wires a real HTTP route or worker job to the database should treat that as new ground, not assume this factory has been runtime-proven beyond what is stated here.
+
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
 - ADR-006 identity bridge;

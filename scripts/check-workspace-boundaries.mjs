@@ -187,7 +187,13 @@ for (const entry of packages) {
         }
         continue;
       }
-      if (PURE_PACKAGES.has(shortName) && isExternal(specifier)) {
+      // The "no vendor SDK" rule governs production code. A test file's own
+      // test framework (vitest, declared in the root package.json as shared
+      // dev tooling) is not a runtime dependency of the package under test -
+      // this exemption is what let packages/domain add its first *.test.ts
+      // file; without it, "no vendor SDK" would make packages/domain
+      // untestable.
+      if (PURE_PACKAGES.has(shortName) && isExternal(specifier) && !/\.test\.ts$/.test(file)) {
         fail(
           `${fileRel} imports external module "${specifier}"; ${manifest.name} must stay free of vendor SDKs`,
         );
