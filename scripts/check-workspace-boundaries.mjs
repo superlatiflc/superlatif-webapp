@@ -181,12 +181,16 @@ for (const entry of packages) {
           continue;
         }
         if (!allDeclared.includes(target)) {
-          fail(`${fileRel} imports ${target} but ${rel}/package.json does not declare it (phantom dependency)`);
+          fail(
+            `${fileRel} imports ${target} but ${rel}/package.json does not declare it (phantom dependency)`,
+          );
         }
         continue;
       }
       if (PURE_PACKAGES.has(shortName) && isExternal(specifier)) {
-        fail(`${fileRel} imports external module "${specifier}"; ${manifest.name} must stay free of vendor SDKs`);
+        fail(
+          `${fileRel} imports external module "${specifier}"; ${manifest.name} must stay free of vendor SDKs`,
+        );
       }
     }
   }

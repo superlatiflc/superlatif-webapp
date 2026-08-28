@@ -9,22 +9,38 @@
     "pnpm": ">=11.20.0 <12"
   },
   "scripts": {
-    "lint": "node scripts/check-workspace-boundaries.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . && node scripts/check-workspace-boundaries.mjs",
+    "lint:boundaries": "node scripts/check-workspace-boundaries.mjs",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r --if-present build",
-    "test:unit": "node scripts/not-configured.mjs test:unit GOV-002",
-    "test:contract": "node scripts/not-configured.mjs test:contract GOV-002",
-    "test:integration": "node scripts/not-configured.mjs test:integration GOV-002",
-    "test:e2e": "node scripts/not-configured.mjs test:e2e GOV-002",
-    "test:a11y": "node scripts/not-configured.mjs test:a11y GOV-002",
+    "test:unit": "vitest run --project unit",
+    "test:contract": "vitest run --project contract",
+    "test:integration": "node scripts/not-configured.mjs test:integration \"P1 (first persistence slice)\"",
+    "test:e2e": "node scripts/not-configured.mjs test:e2e \"P2 (first real UI surface)\"",
+    "test:a11y": "node scripts/not-configured.mjs test:a11y \"P2 (first real UI surface)\"",
+    "contracts:validate": "node scripts/validate-contracts.mjs",
+    "fixtures:digest": "node scripts/fixture-digest.mjs",
+    "check:determinism": "node scripts/check-determinism.mjs",
     "db:generate": "node scripts/not-configured.mjs db:generate \"BD-05 lock at P1\"",
     "db:migrate": "node scripts/not-configured.mjs db:migrate \"BD-05 lock at P1\"",
     "db:check": "node scripts/db-check.mjs",
     "validate:starter": "node scripts/validate-starter.mjs",
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run db:check && pnpm run validate:starter"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test:unit && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "24.13.3",
-    "typescript": "5.9.3"
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.11.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11",
+    "yaml": "2.9.0"
   }
 }

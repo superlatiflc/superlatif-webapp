@@ -282,7 +282,7 @@ Mapping: `20 §5 packages/database` → `packages/db`; the domain subdomains in 
 
 **Test tools (BD-03).** Vitest for unit/contract/integration, Playwright for E2E, axe-core through Playwright for accessibility. GOV-001 reserves the script names only; GOV-002 configures the runners. Determinism uses injected clock and seeded randomness driven by the existing `TEST_FIXTURE_SEED`.
 
-**Code style tooling.** Deliberately **not** decided here. A formatter and a code-style linter are new dependencies whose rationale belongs to GOV-002 under the dependency rule in `29_CLAUDE_CODE_EXECUTION_PLAN.md` §6. At P0 the `lint` script performs architectural linting only.
+**Code style tooling.** Deferred from this ADR and decided in **ADR-043** during GOV-002, per the dependency rule in `29_CLAUDE_CODE_EXECUTION_PLAN.md` §6.
 
 **Evidence location (BD-06).** GitHub Actions artifacts for CI evidence, plus a separate private repository `superlatif-ops-evidence` as the restricted operational record, keyed by release ID and commit SHA, restricted to founder and engineering lead. That record must never contain secrets, PII, answer payloads, or raw webhook bodies, consistent with `24_AUTH_RBAC_SECURITY_AND_PRIVACY.md` §17 and `30_LAUNCH_AND_OPERATIONS_RUNBOOK.md` §2.
 
@@ -304,6 +304,30 @@ Several packages stay empty until their owning backlog task arrives. They are st
 ### Validation
 
 Fresh-checkout install, build, and typecheck across all nine workspace projects; negative tests proving the boundary guard and the migration guard both fail when violated. BD-04 and BD-05 remain open by design; their lock point is P1.
+
+## ADR-043 — Prettier for formatting, ESLint flat config for correctness
+
+**Status:** Accepted  
+**Date:** 28 August 2026  
+**Decided during:** GOV-002. Deferred from ADR-042.
+
+### Context
+
+`27_QA_TESTING_AND_UAT_PLAN.md` §3 makes formatting and lint mandatory static checks on every merge, and §17 makes "no new secret, critical dependency issue, broken schema/ref" a merge exit criterion. ADR-042 deliberately left the choice open because a formatter and a linter are new dependencies, and `29_CLAUDE_CODE_EXECUTION_PLAN.md` §6 requires a rationale for each one.
+
+### Decision
+
+**Prettier** owns formatting. **ESLint** with flat config (`eslint.config.mjs`) owns correctness rules, composed with `typescript-eslint`. `eslint-config-prettier` is applied last so the two tools never disagree about layout: formatting is mechanical and must not consume review attention. All four are pinned in `pnpm-lock.yaml`.
+
+The rule set is deliberately narrow at P0. It covers TypeScript correctness, forbids untyped unused bindings, enforces `import type` so `verbatimModuleSyntax` stays honest, and blocks stray `console` in library code while allowing it in command-line governance scripts, configs, and tests. React, accessibility, and Next.js rule sets are **not** added yet: at P0 there is no real UI surface for them to check, and adding them now would mean maintaining configuration that nothing exercises. They arrive in P2 with the first screens, alongside the accessibility tooling that ADR-042 reserved.
+
+### Scope exclusion
+
+Delivered starter artifacts are excluded from both tools: `CLAUDE.md`, `START_HERE.md`, `STARTER_VALIDATION.md`, `PROMPT_PERTAMA_CLAUDE.md`, and `scripts/validate-starter.mjs`, together with `docs/`, `contracts/`, `planning/`, and `test/fixtures/`. Those files were shipped as source of truth and evidence. Reformatting them produces diff noise on documents this repository consumes rather than owns, and a reformatted evidence table is harder to compare against the record it documents.
+
+### Consequences
+
+Formatting disagreements stop being review comments. The exclusion list must be revisited if a Gate document ever becomes generated rather than authored. The narrow rule set means a UI-specific class of defect is not yet caught by lint; that gap closes in P2 and is recorded here so it is not mistaken for coverage that already exists.
 
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
