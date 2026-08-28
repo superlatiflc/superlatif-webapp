@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "1.0",
+  "artifact": "superlatif-release-gates",
+  "releaseCandidate": "Gate-4-RC1",
+  "decisionRule": "NO_GO if one required condition is not PASS, one required evidence item is missing, or one hard external gate is unresolved.",
+  "statusVocabulary": ["NOT_RUN", "BLOCKED", "PASS", "FAIL", "WAIVED"],
+  "waiverPolicy": {
+    "allowedFor": ["non-critical cosmetic defects", "documented low-risk operational inconvenience"],
+    "forbiddenFor": ["security critical/high without accepted remediation", "money or access integrity", "answer loss", "wrong score", "unverified restore", "unresolved hard external gate"],
+    "requires": ["named owner", "written risk", "expiry date", "approver", "follow-up ticket"]
+  },
+  "externalGates": [
+    {
+      "id": "OD-01",
+      "title": "Verified Sejoli event, signature, retry, and order semantics",
+      "ownerRole": "Commerce Owner + Engineering Lead",
+      "status": "BLOCKED",
+      "blocks": ["production commerce normalization", "payment-to-access certification"],
+      "requiredEvidence": ["sanitized paid/refund/cancel payloads", "stable external identifiers", "signature bytes and verification method", "timestamp/replay and retry behavior", "amount/refund/chargeback semantics"]
+    },
+    {
+      "id": "OD-02",
+      "title": "Verified WordPress one-time bridge and safe account linking",
+      "ownerRole": "Identity Owner + Engineering Lead",
+      "status": "BLOCKED",
+      "blocks": ["production identity bridge", "legacy account migration"],
+      "requiredEvidence": ["sanitized exchange sample", "audience/nonce/expiry behavior", "identity-key mapping", "ambiguous-link examples", "logout and revocation behavior"]
+    },
+    {
+      "id": "OD-03",
+      "title": "Final production provider decisions",
+      "ownerRole": "Founder + Engineering Lead",
+      "status": "BLOCKED",
+      "blocks": ["provider-specific runbook commands", "final cost/SLA/data-residency approval"],
+      "requiredEvidence": ["benchmark and ADR for hosting/database/cache/queue", "object storage and CDN decision", "email/WhatsApp provider decision", "live-class provider decision", "cost/SLA/data-residency review"]
+    },
+    {
+      "id": "OD-04",
+      "title": "Approved official current-year SKD rules",
+      "ownerRole": "Academic Owner + Product Owner",
+      "status": "BLOCKED",
+      "blocks": ["production ranked SKD activation", "official-threshold claims"],
+      "requiredEvidence": ["primary official source", "verified structure/threshold/category mapping", "effective-year evidence", "academic sign-off", "official scoring fixture"]
+    },
+    {
+      "id": "OD-07",
+      "title": "Approved Indonesian legal and privacy operating policy",
+      "ownerRole": "Founder + Legal/Privacy Reviewer",
+      "status": "BLOCKED",
+      "blocks": ["production personal-data processing", "consent/retention/incident activation"],
+      "requiredEvidence": ["consent and minor/guardian decision", "data-subject request procedure", "retention/deletion schedule", "notification opt-in policy", "incident notification procedure"]
+    },
+    {
+      "id": "OD-08",
+      "title": "Approved production capacity envelope",
+      "ownerRole": "Product Owner + Engineering Lead",
+      "status": "BLOCKED",
+      "blocks": ["final load target", "production infrastructure sizing"],
+      "requiredEvidence": ["peak concurrent attempts", "expected webhook rate", "question/media profile", "growth allowance"]
+    },
+    {
+      "id": "LEGACY-PROMISES",
+      "title": "Legacy commercial promises and exceptional access rules",
+      "ownerRole": "Product Owner + Customer Operations",
+      "status": "BLOCKED",
+      "blocks": ["migration entitlement finalization"],
+      "requiredEvidence": ["lifetime/scholarship/manual-access list", "expiry promises", "upgrade/refund exceptions"]
+    }
+  ],
+  "gates": [
+    {
+      "id": "A",
+      "name": "Access",
+      "ownerRole": "Commerce Owner + Engineering Lead + QA Lead",
+      "status": "NOT_RUN",
+      "requiredConditions": [
+        "Synthetic paid, refund, cancel, duplicate, and replay fixtures pass",
+        "Reconciliation queue and bounded manual recovery work",
+        "Revoking one grant source preserves another valid source",
+        "Identity mapping, RBAC, and effective-access explanation pass"
+      ],
+      "requiredEvidenceIds": ["A-COMMERCE-LIFECYCLE", "A-REPLAY-IDEMPOTENCY", "A-ENTITLEMENT-MATRIX", "A-RECONCILIATION-RECOVERY", "A-IDENTITY-RBAC"],
+      "externalPrerequisites": ["OD-01", "OD-02"],
+      "exitDecision": "Access path may launch only for the provider evidence and scope actually tested."
+    },
+    {
+      "id": "B",
+      "name": "Learning",
+      "ownerRole": "Product Owner + Learning Operations + QA Lead",
+      "status": "BLOCKED",
+      "requiredConditions": [
+        "Program, roadmap, resource, schedule, and recording mobile UAT pass",
+        "Progress rebuild returns the expected result",
+        "Expired access cannot retrieve protected learning assets",
+        "Critical learning states pass keyboard, focus, contrast, and zoom checks"
+      ],
+      "requiredEvidenceIds": ["B-MOBILE-UAT", "B-PROGRESS-REBUILD", "B-ASSET-AUTHORIZATION", "B-ACCESSIBILITY"],
+      "externalPrerequisites": ["OD-03", "OD-07"],
+      "exitDecision": "Learning scope may launch after owner UAT and provider/privacy evidence for the selected scope pass."
+    },
+    {
+      "id": "C",
+      "name": "SKD",
+      "ownerRole": "Academic Owner + Engineering Lead + QA Lead",
+      "status": "BLOCKED",
+      "requiredConditions": [
+        "Academic owner signs the exact blueprint and scoring-policy versions",
+        "Golden scoring and result-correction fixtures pass",
+        "Offline, resume, device lease, expiry, and submit E2E pass",
+        "No answer secret appears in active-attempt payloads",
+        "Load test and exam incident drill pass"
+      ],
+      "requiredEvidenceIds": ["C-ACADEMIC-SIGNOFF", "C-SCORING-GOLDEN", "C-RESULT-CORRECTION", "C-EXAM-RECOVERY", "C-ANSWER-SECRET", "C-LOAD-INCIDENT"],
+      "externalPrerequisites": ["OD-04", "OD-07", "OD-08"],
+      "exitDecision": "Only the signed exam family/year/policy combination may activate; synthetic policy never qualifies."
+    },
+    {
+      "id": "D",
+      "name": "Commerce/Launch",
+      "ownerRole": "Launch Commander + Product Owner + Commerce Owner",
+      "status": "BLOCKED",
+      "requiredConditions": [
+        "Branded checkout intent and return flow work without trusting client payment state",
+        "Flash-sale sales, attempt, result, explanation, and leaderboard windows are validated",
+        "Security, migration, reconciliation, restore, rollback, and support rehearsals pass",
+        "Monitoring, on-call, alert routes, rollback authority, and signed go/no-go are confirmed"
+      ],
+      "requiredEvidenceIds": ["D-CHECKOUT-RETURN", "D-FLASH-SALE-TIMELINE", "D-SECURITY", "D-MIGRATION-REHEARSAL", "D-RECONCILIATION", "D-RESTORE", "D-ROLLBACK-DRILL", "D-ONCALL", "D-GO-NOGO"],
+      "externalPrerequisites": ["OD-01", "OD-02", "OD-03", "OD-07", "OD-08", "LEGACY-PROMISES"],
+      "exitDecision": "Only an explicit GO decision authorizes progressive production rollout."
+    }
+  ]
+}

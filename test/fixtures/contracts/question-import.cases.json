@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "question-import",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "templateVersions": ["simple-v1", "advanced-v1"],
+  "cases": [
+    {
+      "id": "QST-SYN-001",
+      "title": "Valid simple template imports as draft",
+      "input": {"templateVersion": "simple-v1", "rows": [{"questionCode": "SYN-Q-001", "type": "single_choice", "stem": "Synthetic question", "options": ["A", "B", "C", "D"], "correctOption": "B"}], "files": []},
+      "expected": {"accepted": 1, "warnings": 0, "errors": 0, "questionState": "draft"}
+    },
+    {
+      "id": "QST-SYN-002",
+      "title": "Advanced weighted option question accepts complete weights",
+      "input": {"templateVersion": "advanced-v1", "rows": [{"questionCode": "SYN-Q-002", "type": "weighted_choice", "stem": "Synthetic situation", "options": [{"code": "A", "score": 1}, {"code": "B", "score": 3}, {"code": "C", "score": 5}]}], "files": []},
+      "expected": {"accepted": 1, "warnings": 0, "errors": 0, "questionState": "draft"}
+    },
+    {
+      "id": "QST-SYN-003",
+      "title": "Missing referenced image blocks the row",
+      "input": {"templateVersion": "advanced-v1", "rows": [{"questionCode": "SYN-Q-003", "type": "single_choice", "stemImage": "SYN-Q-003.png", "options": ["A", "B"], "correctOption": "A"}], "files": []},
+      "expected": {"accepted": 0, "warnings": 0, "errors": 1, "errorCodes": ["REFERENCED_ASSET_NOT_FOUND"]}
+    },
+    {
+      "id": "QST-SYN-004",
+      "title": "Archive path traversal is rejected before extraction",
+      "input": {"templateVersion": "advanced-v1", "rows": [], "archiveEntries": ["../../secrets.txt", "images/valid.png"]},
+      "expected": {"jobAccepted": false, "extractedFiles": 0, "errorCodes": ["UNSAFE_ARCHIVE_PATH"]}
+    },
+    {
+      "id": "QST-SYN-005",
+      "title": "Unsupported SVG is rejected in MVP",
+      "input": {"templateVersion": "advanced-v1", "rows": [{"questionCode": "SYN-Q-005", "type": "image_choice", "stemImage": "shape.svg"}], "files": [{"name": "shape.svg", "mediaType": "image/svg+xml", "bytes": 1000}]},
+      "expected": {"accepted": 0, "errors": 1, "errorCodes": ["UNSUPPORTED_MEDIA_TYPE"]}
+    },
+    {
+      "id": "QST-SYN-006",
+      "title": "Exact import replay does not duplicate question",
+      "input": {"importFingerprint": "sha256:synthetic-6", "templateVersion": "simple-v1", "rows": [{"questionCode": "SYN-Q-006", "type": "single_choice", "stem": "Replay", "options": ["A", "B"], "correctOption": "A"}]},
+      "preexisting": {"completedImportFingerprint": "sha256:synthetic-6", "questionVersionId": "qv-6"},
+      "expected": {"accepted": 0, "duplicatesCreated": 0, "reusedQuestionVersionId": "qv-6", "reasonCode": "IMPORT_ALREADY_COMPLETED"}
+    }
+  ]
+}

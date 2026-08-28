@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.superlatif.id/schemas/exam-blueprint.schema.json",
+  "title": "Superlatif Exam Blueprint",
+  "description": "Versioned exam format. Family codes are extensible; production activation is approval-gated.",
+  "type": "object",
+  "x-superlatifSemanticInvariants": [
+    {
+      "id": "SECTION_DURATION_SUM",
+      "when": "timing.mode == per_section",
+      "assert": "every sections[].durationSeconds is present and sum(sections[].durationSeconds) == timing.totalDurationSeconds",
+      "enforcedBy": "blueprint publication validator and contract fixtures"
+    }
+  ],
+  "additionalProperties": false,
+  "required": ["schemaVersion", "code", "version", "examFamily", "activationScope", "title", "sections", "timing", "navigation", "presentation", "scoringPolicyRef", "resultPolicy", "approval"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "code": {"type": "string", "pattern": "^[A-Z0-9_]+$", "minLength": 3, "maxLength": 80},
+    "version": {"type": "integer", "minimum": 1},
+    "examFamily": {"type": "string", "pattern": "^[A-Z0-9_]+$", "minLength": 3, "maxLength": 80},
+    "activationScope": {"type": "string", "enum": ["draft_only", "staging", "production"]},
+    "title": {"type": "string", "minLength": 3, "maxLength": 180},
+    "description": {"type": ["string", "null"], "maxLength": 2000},
+    "regulationYear": {"type": ["integer", "null"], "minimum": 2020, "maximum": 2100},
+    "locale": {"type": "string", "default": "id-ID"},
+    "sections": {"type": "array", "minItems": 1, "maxItems": 30, "items": {"$ref": "#/$defs/section"}},
+    "timing": {"$ref": "#/$defs/timing"},
+    "navigation": {"$ref": "#/$defs/navigation"},
+    "presentation": {"$ref": "#/$defs/presentation"},
+    "scoringPolicyRef": {"$ref": "#/$defs/versionRef"},
+    "resultPolicy": {"$ref": "#/$defs/resultPolicy"},
+    "attemptPolicyDefaults": {"$ref": "#/$defs/attemptPolicyDefaults"},
+    "accommodationDefaults": {"$ref": "#/$defs/accommodationDefaults"},
+    "regulatorySources": {"type": "array", "items": {"$ref": "#/$defs/source"}, "default": []},
+    "metadata": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean", "null"]}, "default": {}},
+    "approval": {"$ref": "#/$defs/approval"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"resultPolicy": {"properties": {"rankingMode": {"enum": ["batch", "cohort"]}}, "required": ["rankingMode"]}}},
+      "then": {"properties": {"presentation": {"properties": {"questionOrder": {"const": "fixed"}}}, "resultPolicy": {"properties": {"releaseMode": {"enum": ["scheduled_after_review", "manual"]}, "humanReviewRequired": {"const": true}}}}}
+    },
+    {
+      "if": {"properties": {"activationScope": {"const": "production"}}},
+      "then": {"properties": {"approval": {"properties": {"status": {"const": "active"}}}}}
+    },
+    {
+      "if": {"properties": {"timing": {"properties": {"mode": {"const": "per_section"}}, "required": ["mode"]}}},
+      "then": {"properties": {"sections": {"items": {"required": ["durationSeconds"]}}}}
+    }
+  ],
+  "$defs": {
+    "versionRef": {
+      "type": "object", "additionalProperties": false, "required": ["code", "version", "checksum"],
+      "properties": {"code": {"type": "string", "pattern": "^[A-Z0-9_]+$"}, "version": {"type": "integer", "minimum": 1}, "checksum": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    },
+    "section": {
+      "type": "object", "additionalProperties": false, "required": ["code", "title", "order", "questionCount", "allowedQuestionTypes"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z0-9_]+$"}, "title": {"type": "string", "minLength": 1, "maxLength": 120}, "order": {"type": "integer", "minimum": 1},
+        "questionCount": {"type": "integer", "minimum": 1, "maximum": 500}, "durationSeconds": {"type": ["integer", "null"], "minimum": 60, "maximum": 43200},
+        "allowedQuestionTypes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["single_choice", "multiple_choice", "statement_true_false", "weighted_choice", "numeric"]}},
+        "minimumScoreRuleRef": {"type": ["string", "null"]}, "metadata": {"type": "object", "additionalProperties": true, "default": {}}
+      }
+    },
+    "timing": {
+      "type": "object", "additionalProperties": false, "required": ["mode", "totalDurationSeconds", "serverAuthoritative", "autoSubmitAtDeadline", "lateSyncCutoffSeconds", "policyPrecedence"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["global", "per_section"]}, "totalDurationSeconds": {"type": "integer", "minimum": 60, "maximum": 43200},
+        "serverAuthoritative": {"const": true}, "autoSubmitAtDeadline": {"type": "boolean"}, "pauseAllowed": {"type": "boolean", "default": false},
+        "lateSyncCutoffSeconds": {"type": "integer", "minimum": 0, "maximum": 300, "default": 30}, "lateSyncDisposition": {"const": "candidate_for_review"},
+        "policyPrecedence": {"const": ["attempt_accommodation", "batch_attempt_policy", "blueprint_default"]}
+      }
+    },
+    "navigation": {
+      "type": "object", "additionalProperties": false, "required": ["allowBack", "allowFlag", "allowJump", "sectionLockMode"],
+      "properties": {"allowBack": {"type": "boolean"}, "allowFlag": {"type": "boolean"}, "allowJump": {"type": "boolean"}, "sectionLockMode": {"type": "string", "enum": ["free", "section_restricted", "forward_only"]}, "showAnsweredCount": {"type": "boolean", "default": true}, "showQuestionPalette": {"type": "boolean", "default": true}}
+    },
+    "presentation": {
+      "type": "object", "additionalProperties": false, "required": ["questionOrder", "optionOrder", "persistPresentedOrder"],
+      "properties": {"questionOrder": {"const": "fixed"}, "optionOrder": {"type": "string", "enum": ["fixed", "question_policy"]}, "persistPresentedOrder": {"const": true}, "showSectionIntro": {"type": "boolean", "default": true}, "showScoreDuringAttempt": {"const": false}, "watermarkMode": {"type": "string", "enum": ["none", "learner_id", "session_code"], "default": "none"}}
+    },
+    "resultPolicy": {
+      "type": "object", "additionalProperties": false, "required": ["releaseMode", "rankingMode", "humanReviewRequired", "showSectionScores", "showExplanations"],
+      "properties": {"releaseMode": {"type": "string", "enum": ["immediate_unranked", "scheduled_after_review", "manual"]}, "rankingMode": {"type": "string", "enum": ["none", "batch", "cohort"]}, "humanReviewRequired": {"type": "boolean"}, "showSectionScores": {"type": "boolean"}, "showExplanations": {"type": "string", "enum": ["never", "with_result", "scheduled_separately"]}, "showCorrectAnswer": {"type": "boolean", "default": false}, "percentileLabel": {"type": ["string", "null"]}, "disclaimer": {"type": ["string", "null"], "maxLength": 1000}}
+    },
+    "attemptPolicyDefaults": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"maxRankedAttempts": {"type": "integer", "minimum": 1, "maximum": 100}, "maxPracticeAttempts": {"const": 0}, "resumeAllowed": {"type": "boolean", "default": true}, "writerLeaseSeconds": {"type": "integer", "minimum": 15, "maximum": 300, "default": 60}, "takeoverAllowed": {"type": "boolean", "default": true}, "rankingAttemptSource": {"const": "batch"}}
+    },
+    "accommodationDefaults": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"extraTimePercent": {"type": "integer", "minimum": 0, "maximum": 200, "default": 0}, "extraTimeSeconds": {"type": "integer", "minimum": 0, "maximum": 43200, "default": 0}, "reducedMotion": {"type": "boolean", "default": false}, "screenReaderOptimized": {"type": "boolean", "default": false}}
+    },
+    "source": {
+      "type": "object", "additionalProperties": false, "required": ["title", "url", "verifiedAt"],
+      "properties": {"title": {"type": "string"}, "url": {"type": "string", "format": "uri"}, "documentNumber": {"type": ["string", "null"]}, "effectiveFrom": {"type": ["string", "null"], "format": "date"}, "verifiedAt": {"type": "string", "format": "date-time"}, "verifiedBy": {"type": "string"}}
+    },
+    "approval": {
+      "type": "object", "additionalProperties": false, "required": ["status", "academicApproval", "technicalApproval", "regulatoryCheck"],
+      "properties": {"status": {"type": "string", "enum": ["draft", "in_review", "approved", "active", "retired"]}, "academicApproval": {"$ref": "#/$defs/approvalRecord"}, "technicalApproval": {"$ref": "#/$defs/approvalRecord"}, "regulatoryCheck": {"$ref": "#/$defs/approvalRecord"}, "activatedAt": {"type": ["string", "null"], "format": "date-time"}}
+    },
+    "approvalRecord": {
+      "type": "object", "additionalProperties": false, "required": ["state"],
+      "properties": {"state": {"type": "string", "enum": ["pending", "approved", "rejected", "not_required"]}, "actorId": {"type": ["string", "null"], "format": "uuid"}, "at": {"type": ["string", "null"], "format": "date-time"}, "note": {"type": ["string", "null"], "maxLength": 1000}}
+    }
+  }
+}

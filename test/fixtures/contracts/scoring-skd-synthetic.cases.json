@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "scoring-skd-synthetic",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "regulatoryClaim": "NONE",
+  "policy": {
+    "code": "SKD_SYNTHETIC_V1_NOT_OFFICIAL",
+    "label": "Synthetic scorer test only",
+    "components": {
+      "COGNITIVE": {"type": "binary", "correct": 5, "incorrect": 0, "blank": 0},
+      "SITUATIONAL": {"type": "weighted_option", "allowedWeights": [1, 2, 3, 4, 5], "blank": 0}
+    },
+    "thresholds": {"COGNITIVE": 10, "SITUATIONAL": 6},
+    "thresholdNotice": "Deliberately invented values; never publish as official regulation."
+  },
+  "cases": [
+    {
+      "id": "SCR-SYN-001",
+      "answers": [
+        {"questionId": "c-1", "component": "COGNITIVE", "correct": true},
+        {"questionId": "c-2", "component": "COGNITIVE", "correct": true},
+        {"questionId": "c-3", "component": "COGNITIVE", "correct": false},
+        {"questionId": "s-1", "component": "SITUATIONAL", "selectedWeight": 5},
+        {"questionId": "s-2", "component": "SITUATIONAL", "selectedWeight": 3}
+      ],
+      "expected": {"components": {"COGNITIVE": 10, "SITUATIONAL": 8}, "total": 18, "thresholdsPassed": {"COGNITIVE": true, "SITUATIONAL": true}, "overallPassed": true}
+    },
+    {
+      "id": "SCR-SYN-002",
+      "answers": [
+        {"questionId": "c-1", "component": "COGNITIVE", "correct": true},
+        {"questionId": "c-2", "component": "COGNITIVE", "correct": false},
+        {"questionId": "c-3", "component": "COGNITIVE", "correct": false},
+        {"questionId": "s-1", "component": "SITUATIONAL", "selectedWeight": 5},
+        {"questionId": "s-2", "component": "SITUATIONAL", "selectedWeight": 5}
+      ],
+      "expected": {"components": {"COGNITIVE": 5, "SITUATIONAL": 10}, "total": 15, "thresholdsPassed": {"COGNITIVE": false, "SITUATIONAL": true}, "overallPassed": false}
+    },
+    {
+      "id": "SCR-SYN-003",
+      "answers": [
+        {"questionId": "c-1", "component": "COGNITIVE", "correct": true},
+        {"questionId": "c-2", "component": "COGNITIVE", "correct": true},
+        {"questionId": "s-1", "component": "SITUATIONAL", "selectedWeight": null}
+      ],
+      "expected": {"components": {"COGNITIVE": 10, "SITUATIONAL": 0}, "total": 10, "thresholdsPassed": {"COGNITIVE": true, "SITUATIONAL": false}, "overallPassed": false}
+    },
+    {
+      "id": "SCR-SYN-004",
+      "title": "Recompute stays pinned to snapshot policy",
+      "snapshotPolicyCode": "SKD_SYNTHETIC_V1_NOT_OFFICIAL",
+      "currentPolicyCode": "SKD_SYNTHETIC_V2_NOT_OFFICIAL",
+      "answers": [{"questionId": "c-1", "component": "COGNITIVE", "correct": true}],
+      "expected": {"policyUsed": "SKD_SYNTHETIC_V1_NOT_OFFICIAL", "total": 5}
+    }
+  ]
+}

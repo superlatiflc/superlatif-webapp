@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "migration-reconciliation",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "cases": [
+    {
+      "id": "MIG-SYN-001",
+      "title": "Known user and paid order map to one purchase grant",
+      "source": {"users": 1, "orders": [{"id": "legacy-order-1", "state": "paid", "productCode": "legacy-skd", "userId": "legacy-user-1"}]},
+      "mapping": {"legacy-skd": "SKU-SKD-90D"},
+      "expected": {"identities": 1, "purchases": 1, "grants": 1, "exceptions": 0}
+    },
+    {
+      "id": "MIG-SYN-002",
+      "title": "Duplicate email does not auto-merge identities",
+      "source": {"users": [{"id": "legacy-user-2a", "email": "duplicate@example.invalid"}, {"id": "legacy-user-2b", "email": "duplicate@example.invalid"}]},
+      "expected": {"autoMerged": 0, "identityConflicts": 1, "quarantinedSourceIds": ["legacy-user-2a", "legacy-user-2b"]}
+    },
+    {
+      "id": "MIG-SYN-003",
+      "title": "Unknown product code is quarantined",
+      "source": {"orders": [{"id": "legacy-order-3", "state": "paid", "productCode": "unknown-product", "userId": "legacy-user-3"}]},
+      "mapping": {},
+      "expected": {"purchases": 1, "grants": 0, "exceptions": 1, "reasonCode": "UNMAPPED_PRODUCT"}
+    },
+    {
+      "id": "MIG-SYN-004",
+      "title": "Refunded legacy order does not create active purchase access",
+      "source": {"orders": [{"id": "legacy-order-4", "state": "refunded", "productCode": "legacy-skd", "userId": "legacy-user-4"}]},
+      "mapping": {"legacy-skd": "SKU-SKD-90D"},
+      "expected": {"purchases": 1, "activeGrants": 0, "revokedOrHistoricalGrants": 1}
+    },
+    {
+      "id": "MIG-SYN-005",
+      "title": "Legacy lifetime promise remains explicit and source-labeled",
+      "source": {"manualAccess": [{"id": "legacy-access-5", "userId": "legacy-user-5", "productCode": "legacy-bundle", "promise": "lifetime"}]},
+      "mapping": {"legacy-bundle": "PROGRAM-AKS-2026"},
+      "expected": {"grants": 1, "grantSourceType": "legacy_promise", "endsAt": null, "requiresOwnerApproval": true}
+    },
+    {
+      "id": "MIG-SYN-006",
+      "title": "Rerun is idempotent",
+      "source": {"users": 1, "orders": [{"id": "legacy-order-6", "state": "paid", "productCode": "legacy-skd", "userId": "legacy-user-6"}]},
+      "preexistingLineage": ["legacy-order-6"],
+      "expected": {"newIdentities": 0, "newPurchases": 0, "newGrants": 0, "duplicates": 0}
+    },
+    {
+      "id": "MIG-SYN-007",
+      "title": "Order count and amount reconcile",
+      "source": {"ordersByState": {"paid": {"count": 2, "amountMinor": 15000000}, "refunded": {"count": 1, "amountMinor": 5000000}}},
+      "target": {"ordersByState": {"paid": {"count": 2, "amountMinor": 15000000}, "refunded": {"count": 1, "amountMinor": 5000000}}},
+      "expected": {"countDelta": 0, "amountDeltaMinor": 0, "pass": true}
+    },
+    {
+      "id": "MIG-SYN-008",
+      "title": "Missing source user blocks dependent order",
+      "source": {"users": [], "orders": [{"id": "legacy-order-8", "state": "paid", "productCode": "legacy-skd", "userId": "missing-user"}]},
+      "mapping": {"legacy-skd": "SKU-SKD-90D"},
+      "expected": {"purchases": 0, "grants": 0, "exceptions": 1, "reasonCode": "IDENTITY_NOT_FOUND"}
+    },
+    {
+      "id": "MIG-SYN-009",
+      "title": "Invalid date is quarantined without coercion",
+      "source": {"manualAccess": [{"id": "legacy-access-9", "startsAt": "not-a-date", "endsAt": "2026-12-31"}]},
+      "expected": {"grants": 0, "exceptions": 1, "reasonCode": "INVALID_INTERVAL"}
+    },
+    {
+      "id": "MIG-SYN-010",
+      "title": "Overlapping purchase and scholarship both preserve lineage",
+      "source": {"orders": [{"id": "legacy-order-10", "state": "paid", "productCode": "legacy-skd", "userId": "legacy-user-10"}], "scholarships": [{"id": "legacy-sch-10", "productCode": "legacy-skd", "userId": "legacy-user-10"}]},
+      "mapping": {"legacy-skd": "SKU-SKD-90D"},
+      "expected": {"grants": 2, "effectiveResources": 1, "lineageSources": ["legacy-order-10", "legacy-sch-10"]}
+    },
+    {
+      "id": "MIG-SYN-011",
+      "title": "Unapproved destructive correction is rejected",
+      "action": {"type": "delete_target_grant", "targetGrantId": "target-g-11", "approvalId": null},
+      "expected": {"accepted": false, "reasonCode": "DESTRUCTIVE_ACTION_NOT_APPROVED", "deleted": 0}
+    },
+    {
+      "id": "MIG-SYN-012",
+      "title": "Reconciliation drift remains visible after partial migration",
+      "source": {"eligibleAccessRecords": 10},
+      "target": {"lineageRecords": 9, "effectiveAccessRecords": 9},
+      "expected": {"pass": false, "missingLineage": 1, "releaseBlocking": true}
+    }
+  ]
+}

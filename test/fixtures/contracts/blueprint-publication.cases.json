@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "blueprint-publication",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "cases": [
+    {
+      "id": "BP-SYN-001",
+      "title": "Valid synthetic fixed-duration blueprint can publish to test",
+      "blueprint": {"code": "SYN-GENERIC-V1", "family": "synthetic_generic", "durationPolicy": "fixed_total", "durationSeconds": 600, "questionCount": 10, "scoringPolicy": "SYN-BINARY-V1", "environment": "test"},
+      "expected": {"publishable": true, "warnings": ["SYNTHETIC_NON_PRODUCTION"]}
+    },
+    {
+      "id": "BP-SYN-002",
+      "title": "Per-section durations must equal declared total",
+      "blueprint": {"code": "SYN-SECTIONS-V1", "family": "synthetic_generic", "durationPolicy": "per_section", "durationSeconds": 900, "sections": [{"code": "A", "durationSeconds": 300}, {"code": "B", "durationSeconds": 500}], "environment": "test"},
+      "expected": {"publishable": false, "errors": ["SECTION_DURATION_SUM_MISMATCH"]}
+    },
+    {
+      "id": "BP-SYN-003",
+      "title": "Ranked batch requires fixed form and approved policy",
+      "blueprint": {"code": "SYN-RANKED-V1", "family": "synthetic_generic", "ranked": true, "formPolicy": "per_attempt_random", "scoringPolicyState": "approved", "environment": "test"},
+      "expected": {"publishable": false, "errors": ["RANKED_BATCH_REQUIRES_FIXED_FORM"]}
+    },
+    {
+      "id": "BP-SYN-004",
+      "title": "Production SKD activation fails without external evidence",
+      "blueprint": {"code": "SKD-SEKDIN-2026-V1", "family": "skd_sekdin", "environment": "production", "scoringEvidenceGate": "OD-04", "scoringEvidenceStatus": "BLOCKED"},
+      "expected": {"publishable": false, "errors": ["OFFICIAL_SCORING_EVIDENCE_REQUIRED"]}
+    },
+    {
+      "id": "BP-SYN-005",
+      "title": "Draft scoring policy cannot back a published form",
+      "blueprint": {"code": "SYN-DRAFT-POLICY-V1", "family": "synthetic_generic", "environment": "test", "scoringPolicyState": "draft"},
+      "expected": {"publishable": false, "errors": ["SCORING_POLICY_NOT_APPROVED"]}
+    }
+  ]
+}

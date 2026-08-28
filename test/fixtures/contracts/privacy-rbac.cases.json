@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "privacy-rbac",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "cases": [
+    {
+      "id": "SEC-SYN-001",
+      "title": "Student cannot read another student's attempt",
+      "actor": {"role": "student", "subjectId": "user-1"},
+      "action": {"type": "read_attempt", "attemptOwnerId": "user-2"},
+      "expected": {"allowed": false, "reasonCode": "OBJECT_SCOPE_DENIED"}
+    },
+    {
+      "id": "SEC-SYN-002",
+      "title": "Tutor can edit assigned draft but not publish blueprint",
+      "actor": {"role": "tutor", "assignedProgramIds": ["program-2"]},
+      "actions": [{"type": "edit_question_draft", "programId": "program-2"}, {"type": "publish_blueprint", "programId": "program-2"}],
+      "expected": {"allowed": [true, false], "reasonCodes": ["ASSIGNED_SCOPE", "ROLE_DENIED"]}
+    },
+    {
+      "id": "SEC-SYN-003",
+      "title": "Moderator approves another creator's question",
+      "actor": {"role": "moderator", "actorId": "mod-3"},
+      "action": {"type": "approve_question", "creatorId": "tutor-3", "questionVersionId": "qv-3"},
+      "expected": {"allowed": true, "auditFields": ["actorId", "reason", "correlationId", "questionVersionId"]}
+    },
+    {
+      "id": "SEC-SYN-004",
+      "title": "Creator cannot approve own question",
+      "actor": {"role": "moderator", "actorId": "mod-4"},
+      "action": {"type": "approve_question", "creatorId": "mod-4", "questionVersionId": "qv-4"},
+      "expected": {"allowed": false, "reasonCode": "MAKER_CHECKER_VIOLATION"}
+    },
+    {
+      "id": "SEC-SYN-005",
+      "title": "Active-attempt payload excludes answer secrets",
+      "actor": {"role": "student", "subjectId": "user-5"},
+      "action": {"type": "read_active_attempt_question", "questionVersionId": "qv-5"},
+      "expected": {"allowed": true, "forbiddenFieldsAbsent": ["correctOption", "optionScores", "scoringKey", "explanationBeforeSubmit"]}
+    },
+    {
+      "id": "SEC-SYN-006",
+      "title": "Admin audit export redacts secret and unnecessary PII",
+      "actor": {"role": "admin", "actorId": "admin-6"},
+      "action": {"type": "export_audit", "scope": "incident-6"},
+      "expected": {"allowed": true, "redactedFields": ["sessionToken", "providerSecret", "rawPassword"], "pseudonymizedFields": ["studentEmail", "studentPhone"]}
+    }
+  ]
+}

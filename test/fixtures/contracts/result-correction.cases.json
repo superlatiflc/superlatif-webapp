@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "result-correction",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "cases": [
+    {
+      "id": "RES-SYN-001",
+      "title": "Approved correction appends version and advances current pointer",
+      "given": {"attemptId": "att-1", "currentResultVersionId": "rv-1", "results": [{"id": "rv-1", "version": 1, "total": 15, "rankingVersionId": "rank-1"}]},
+      "action": {"type": "correct", "creatorId": "admin-a", "approverId": "admin-b", "reason": "Synthetic key correction", "newTotal": 20},
+      "expected": {"oldResultRetained": true, "newResult": {"version": 2, "total": 20}, "currentPointerVersion": 2, "newRankingVersionRequired": true}
+    },
+    {
+      "id": "RES-SYN-002",
+      "title": "Creator cannot approve own high-risk correction",
+      "given": {"attemptId": "att-2", "currentResultVersionId": "rv-2"},
+      "action": {"type": "correct", "creatorId": "admin-a", "approverId": "admin-a", "reason": "Synthetic attempt", "newTotal": 25},
+      "expected": {"accepted": false, "reasonCode": "MAKER_CHECKER_VIOLATION", "resultVersionsCreated": 0}
+    },
+    {
+      "id": "RES-SYN-003",
+      "title": "Missing reason rejects correction",
+      "given": {"attemptId": "att-3", "currentResultVersionId": "rv-3"},
+      "action": {"type": "correct", "creatorId": "admin-a", "approverId": "admin-b", "reason": "", "newTotal": 25},
+      "expected": {"accepted": false, "reasonCode": "REASON_REQUIRED", "resultVersionsCreated": 0}
+    },
+    {
+      "id": "RES-SYN-004",
+      "title": "Published leaderboard preserves old version after correction",
+      "given": {"currentRankingVersionId": "rank-4-v1", "entries": [{"subjectId": "user-4", "rank": 5, "resultVersion": 1}]},
+      "action": {"type": "recompute_ranking", "correctedResultVersion": 2},
+      "expected": {"oldRankingRetained": true, "newRankingVersion": 2, "currentRankingVersion": 2}
+    }
+  ]
+}

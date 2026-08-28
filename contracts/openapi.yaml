@@ -1,0 +1,1525 @@
+openapi: 3.1.0
+info:
+  title: Superlatif Web App API
+  version: 1.0.0-rc2
+  summary: Gate 3 contract subset for the student app, exam engine, admin import, and commerce bridge.
+  description: |
+    Draft contract. Server time is authoritative for examination actions. Published
+    academic and scoring resources are immutable. All command endpoints identified
+    below require an Idempotency-Key.
+servers:
+  - url: https://app.superlatif.id/api/v1
+    description: Production placeholder
+  - url: https://staging-app.superlatif.id/api/v1
+    description: Staging placeholder
+tags:
+  - name: Identity
+  - name: Student
+  - name: Catalogue
+  - name: Exam
+  - name: Admin
+  - name: Integration
+security:
+  - cookieAuth: []
+paths:
+  /auth/bridge/exchange:
+    post:
+      tags: [Identity]
+      summary: Exchange a one-time WordPress bridge code for an app session.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, returnPath]
+              properties:
+                code: {type: string, minLength: 20, maxLength: 512}
+                returnPath: {type: string, pattern: '^/'}
+      responses:
+        '200':
+          description: Session established.
+          headers:
+            X-Request-ID: {$ref: '#/components/headers/RequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionEstablished'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /home:
+    get:
+      tags: [Student]
+      summary: Get the program-centric home projection and next action.
+      responses:
+        '200':
+          description: Current home projection.
+          headers:
+            X-Server-Time: {$ref: '#/components/headers/ServerTime'}
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/HomeProjection'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /me/programs:
+    get:
+      tags: [Student]
+      summary: List programs currently visible to the signed-in learner.
+      responses:
+        '200':
+          description: Program cards with access status.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessMeta'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: {$ref: '#/components/schemas/ProgramCard'}
+  /programs/{programId}:
+    get:
+      tags: [Student]
+      summary: Get an accessible program overview.
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+      responses:
+        '200':
+          description: Program overview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProgramOverviewEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /schedule:
+    get:
+      tags: [Student]
+      summary: List schedule items visible through effective access.
+      parameters:
+        - name: from
+          in: query
+          schema: {type: string, format: date-time}
+        - name: to
+          in: query
+          schema: {type: string, format: date-time}
+        - name: cursor
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Visible schedule items.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ScheduleEnvelope'}
+  /catalogue/offers:
+    get:
+      tags: [Catalogue]
+      summary: List currently visible offers with ownership and overlap hints.
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+      responses:
+        '200':
+          description: Visible catalogue offers.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OfferListEnvelope'}
+  /checkout-intents:
+    post:
+      tags: [Catalogue]
+      summary: Create a checkout handoff to WordPress/Sejoli.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [offerCode, returnPath]
+              properties:
+                offerCode: {type: string, pattern: '^[A-Z0-9_\-]+$'}
+                returnPath: {type: string, pattern: '^/'}
+      responses:
+        '201':
+          description: Checkout handoff created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CheckoutIntentEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+  /me/access/explain:
+    get:
+      tags: [Catalogue]
+      summary: Explain why an action is allowed or denied for a target.
+      parameters:
+        - name: targetType
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/TargetType'}
+        - name: targetId
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+        - name: action
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/AccessAction'}
+      responses:
+        '200':
+          description: Explainable access decision.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessDecisionEnvelope'}
+  /batches/{batchId}:
+    get:
+      tags: [Exam]
+      summary: Get batch state, windows, instructions, and learner eligibility.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: Batch projection.
+          headers:
+            X-Server-Time: {$ref: '#/components/headers/ServerTime'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /batches/{batchId}/attempts:
+    post:
+      tags: [Exam]
+      summary: Start a new attempt or return the learner's resumable attempt.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [clientCapabilities]
+              properties:
+                clientCapabilities:
+                  type: object
+                  additionalProperties: false
+                  required: [offlineQueue, writerLease]
+                  properties:
+                    offlineQueue: {type: boolean}
+                    writerLease: {type: boolean}
+      responses:
+        '200':
+          description: Existing resumable attempt.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AttemptEnvelope'}
+        '201':
+          description: New attempt.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AttemptEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /batches/{batchId}/leaderboard:
+    get:
+      tags: [Exam]
+      summary: Get the privacy-safe current leaderboard snapshot for a batch.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - name: cursor
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Current visible snapshot and the learner's own position when permitted.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeaderboardEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /attempts/{attemptId}:
+    get:
+      tags: [Exam]
+      summary: Resume an attempt using immutable presented order and server timing.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      responses:
+        '200':
+          description: Resumable attempt state.
+          headers:
+            X-Server-Time: {$ref: '#/components/headers/ServerTime'}
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AttemptEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /attempts/{attemptId}/writer-lease/renew:
+    post:
+      tags: [Exam]
+      summary: Renew the active device's writer lease.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [leaseToken]
+              properties:
+                leaseToken: {type: string, minLength: 32}
+      responses:
+        '200':
+          description: Lease renewed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WriterLeaseEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /attempts/{attemptId}/writer-lease/takeover:
+    post:
+      tags: [Exam]
+      summary: Take over a writer lease after explicit learner confirmation.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: New active lease; the prior lease is closed atomically.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WriterLeaseEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /attempts/{attemptId}/answers/{instanceId}:
+    put:
+      tags: [Exam]
+      summary: Save one answer with revision compare-and-set semantics.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AnswerSaveRequest'}
+      responses:
+        '200':
+          description: Answer persisted or a known mutation replayed.
+          headers:
+            X-Server-Time: {$ref: '#/components/headers/ServerTime'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnswerSaveEnvelope'}
+        '409':
+          description: Lease or answer revision conflict; current safe state is returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnswerConflict'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+  /attempts/{attemptId}/flags/{instanceId}:
+    put:
+      tags: [Exam]
+      summary: Set or clear a question flag independently from answer state.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [flagged]
+              properties:
+                flagged: {type: boolean}
+      responses:
+        '204': {description: Flag state persisted.}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /attempts/{attemptId}/submit-summary:
+    get:
+      tags: [Exam]
+      summary: Return server-authoritative answer, flag, and pending-sync summary before final submit.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      responses:
+        '200':
+          description: Submit summary.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessMeta'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [answered, unanswered, flagged, attemptRevision]
+                        properties:
+                          answered: {type: integer, minimum: 0}
+                          unanswered: {type: integer, minimum: 0}
+                          flagged: {type: integer, minimum: 0}
+                          attemptRevision: {type: integer, minimum: 0}
+  /attempts/{attemptId}/submit:
+    post:
+      tags: [Exam]
+      summary: Finalize an attempt using the server-authoritative answer set.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SubmitRequest'}
+      responses:
+        '200':
+          description: Known submission replay.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SubmissionEnvelope'}
+        '201':
+          description: Attempt submitted.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SubmissionEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /attempts/{attemptId}/review:
+    get:
+      tags: [Exam]
+      summary: Get released explanation content only when review window and effective access permit it.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      responses:
+        '200':
+          description: Released review projection; answer secrets are serialized only here.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResultEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /attempts/{attemptId}/result:
+    get:
+      tags: [Exam]
+      summary: Get current released result or its pending state.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      responses:
+        '200':
+          description: Result projection.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResultEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /attempts/{attemptId}/question-reports:
+    post:
+      tags: [Exam]
+      summary: Report a question issue without disclosing answer or scoring secrets.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/QuestionReportRequest'}
+      responses:
+        '201':
+          description: Report accepted with a learner-safe reference.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/QuestionReportEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+  /admin/question-imports:
+    post:
+      tags: [Admin]
+      summary: Create a question import job and signed upload intents.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ImportCreateRequest'}
+      responses:
+        '201':
+          description: Import job created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportJobEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/question-imports/{importId}/validate:
+    post:
+      tags: [Admin]
+      summary: Verify uploaded checksums and enqueue validation.
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [xlsxChecksum]
+              properties:
+                xlsxChecksum: {type: string, pattern: '^[a-f0-9]{64}$'}
+                mediaZipChecksum: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+      responses:
+        '202':
+          description: Validation queued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportJobEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /admin/question-imports/{importId}:
+    get:
+      tags: [Admin]
+      summary: Get import job progress and validation counts.
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: Import job status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportJobEnvelope'}
+  /admin/access/change-requests:
+    post:
+      tags: [Admin]
+      summary: Create a dry-run access change request for review.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AccessChangeRequest'}
+      responses:
+        '201':
+          description: Change request created with impact preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessChangeEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/attempts/{attemptId}/accommodations:
+    post:
+      tags: [Admin]
+      summary: Create a controlled attempt accommodation request and impact preview.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AccommodationRequest'}
+      responses:
+        '201':
+          description: Accommodation request created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccommodationEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+  /admin/attempts/{attemptId}/accommodations/{accommodationId}/approve:
+    post:
+      tags: [Admin]
+      summary: Approve and atomically apply an accommodation as a distinct actor.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/AccommodationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Accommodation applied.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccommodationEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /admin/attempts/{attemptId}/accommodations/{accommodationId}/revoke:
+    post:
+      tags: [Admin]
+      summary: Revoke an applied accommodation with a reason and impact preview.
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/AccommodationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 8, maxLength: 1000}
+      responses:
+        '200':
+          description: Accommodation revoked or a known replay returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccommodationEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /admin/notification-jobs:
+    post:
+      tags: [Admin]
+      summary: Create a versioned notification draft with audience definition.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationJobRequest'}
+      responses:
+        '201':
+          description: Notification draft created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationJobEnvelope'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/notification-jobs/{notificationJobId}/validate:
+    post:
+      tags: [Admin]
+      summary: Preview consent-filtered audience, suppression, and estimated cost.
+      parameters:
+        - $ref: '#/components/parameters/NotificationJobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Validation and audience preview completed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationJobEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /admin/notification-jobs/{notificationJobId}/schedule:
+    post:
+      tags: [Admin]
+      summary: Lock template/audience versions and schedule delivery.
+      parameters:
+        - $ref: '#/components/parameters/NotificationJobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Job scheduled or known replay returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationJobEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /admin/notification-jobs/{notificationJobId}/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel deliveries not yet dispatched to a provider.
+      parameters:
+        - $ref: '#/components/parameters/NotificationJobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Job cancellation projection.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationJobEnvelope'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /integrations/commerce/{provider}/events:
+    post:
+      tags: [Integration]
+      summary: Durably accept a verified commerce event for asynchronous normalization.
+      security:
+        - webhookSignature: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: {type: string, enum: [sejoli_bridge, woocommerce]}
+        - name: X-Provider-Event-ID
+          in: header
+          required: true
+          schema: {type: string, maxLength: 255}
+        - name: X-Superlatif-Timestamp
+          in: header
+          required: true
+          schema: {type: integer, format: int64}
+        - name: X-Superlatif-Key-ID
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 100}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CanonicalCommerceEvent'}
+      responses:
+        '202':
+          description: New or duplicate verified event durably recorded.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookAccepted'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-superlatif_session
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Superlatif-Signature
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 16, maxLength: 128}
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: {type: string, minLength: 32, maxLength: 512}
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    InstanceId:
+      name: instanceId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    AccommodationId:
+      name: accommodationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    NotificationJobId:
+      name: notificationJobId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  headers:
+    RequestId:
+      schema: {type: string, format: uuid}
+    ServerTime:
+      schema: {type: string, format: date-time}
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Unauthorized:
+      description: Missing, expired, or invalid authentication.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Forbidden:
+      description: Authenticated actor is not permitted to perform the action.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    NotFound:
+      description: Resource not found or intentionally obscured.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Conflict:
+      description: State, lease, revision, or idempotency conflict.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Unprocessable:
+      description: Semantically invalid request.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+  schemas:
+    SuccessMeta:
+      type: object
+      required: [meta]
+      properties:
+        meta:
+          type: object
+          additionalProperties: false
+          required: [requestId, serverTime]
+          properties:
+            requestId: {type: string, format: uuid}
+            serverTime: {type: string, format: date-time}
+            nextCursor: {type: [string, 'null']}
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: {type: string, pattern: '^[A-Z0-9_]+$'}
+            message: {type: string}
+            requestId: {type: string, format: uuid}
+            fieldErrors:
+              type: array
+              items:
+                type: object
+                required: [field, code]
+                properties:
+                  field: {type: string}
+                  code: {type: string}
+            recovery:
+              type: object
+              additionalProperties: true
+    SessionEstablished:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [userId, returnPath]
+              properties:
+                userId: {type: string, format: uuid}
+                returnPath: {type: string}
+    HomeProjection:
+      type: object
+      additionalProperties: false
+      required: [greetingName, programs, nextAction, projectedAt]
+      properties:
+        greetingName: {type: string}
+        programs:
+          type: array
+          items: {$ref: '#/components/schemas/ProgramCard'}
+        nextAction: {$ref: '#/components/schemas/NextAction'}
+        schedule:
+          type: array
+          items: {$ref: '#/components/schemas/ScheduleItem'}
+        projectedAt: {type: string, format: date-time}
+        reasonCode: {type: string}
+    ProgramCard:
+      type: object
+      additionalProperties: false
+      required: [id, code, title, accessStatus, progressPercent]
+      properties:
+        id: {type: string, format: uuid}
+        code: {type: string}
+        title: {type: string}
+        periodLabel: {type: [string, 'null']}
+        accessStatus: {type: string, enum: [active, upcoming, expired, suspended]}
+        progressPercent: {type: number, minimum: 0, maximum: 100}
+        nextAction: {$ref: '#/components/schemas/NextAction'}
+    NextAction:
+      type: object
+      additionalProperties: false
+      required: [kind, label, href, reasonCode]
+      properties:
+        kind: {type: string, enum: [resume_module, join_live, start_exam, view_result, remediation, onboarding, browse_program]}
+        label: {type: string}
+        href: {type: string, pattern: '^/'}
+        reasonCode: {type: string, enum: [LIVE_NOW, DEADLINE_SOON, RESUME_IN_PROGRESS, REQUIRED_WITHIN_24H, ROADMAP_NEXT, RESULT_REMEDIATION, OPTIONAL_RECOMMENDATION]}
+    ProgramOverviewEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [program, tabs]
+              properties:
+                program: {$ref: '#/components/schemas/ProgramCard'}
+                tabs:
+                  type: array
+                  items:
+                    type: string
+                    enum: [summary, roadmap, schedule, tryout, materials, community, progress]
+    ScheduleItem:
+      type: object
+      required: [id, type, title, startsAt, status]
+      properties:
+        id: {type: string, format: uuid}
+        type: {type: string, enum: [live_class, exam_window, deadline, announcement]}
+        title: {type: string}
+        startsAt: {type: string, format: date-time}
+        endsAt: {type: [string, 'null'], format: date-time}
+        status: {type: string, enum: [upcoming, open, completed, cancelled]}
+        href: {type: [string, 'null']}
+    ScheduleEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: {$ref: '#/components/schemas/ScheduleItem'}
+    Offer:
+      type: object
+      required: [code, title, amountMinor, currency, availability]
+      properties:
+        code: {type: string}
+        title: {type: string}
+        amountMinor: {type: integer, minimum: 0}
+        listAmountMinor: {type: [integer, 'null'], minimum: 0}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        availability: {type: string, enum: [available, upcoming, ended, ineligible, owned]}
+        saleEndsAt: {type: [string, 'null'], format: date-time}
+        overlapSummary: {type: [string, 'null']}
+    OfferListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: {$ref: '#/components/schemas/Offer'}
+    CheckoutIntentEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [id, checkoutUrl, expiresAt]
+              properties:
+                id: {type: string, format: uuid}
+                checkoutUrl: {type: string, format: uri}
+                expiresAt: {type: string, format: date-time}
+                overlapWarning: {type: [string, 'null']}
+    TargetType:
+      type: string
+      enum: [program, program_track, module, resource, live_session, live_session_series, exam_batch, batch_collection, community, capability]
+    AccessAction:
+      type: string
+      enum: [view, consume, download, join, start_attempt, view_result, view_explanation]
+    AccessDecisionEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [allowed, targetType, targetId, action, reasonCode, safeExplanation]
+              properties:
+                allowed: {type: boolean}
+                targetType: {$ref: '#/components/schemas/TargetType'}
+                targetId: {type: string, format: uuid}
+                action: {$ref: '#/components/schemas/AccessAction'}
+                reasonCode: {type: string, enum: [ALLOWED_ACTIVE_GRANT, SCHEDULED_ACCESS, ACCESS_EXPIRED, PURCHASE_PENDING, ATTEMPT_LIMIT_REACHED, BATCH_NOT_OPEN, PREREQUISITE_REQUIRED, ACCESS_SUSPENDED, ACCESS_NOT_INCLUDED]}
+                safeExplanation: {type: string, maxLength: 500}
+                supportingSources:
+                  type: array
+                  items:
+                    type: object
+                    required: [label]
+                    properties:
+                      label: {type: string}
+                      effectiveUntil: {type: [string, 'null'], format: date-time}
+                scheduledStartAt: {type: [string, 'null'], format: date-time}
+                effectiveUntil: {type: [string, 'null'], format: date-time}
+                attemptsRemaining: {type: [integer, 'null'], minimum: 0}
+    Batch:
+      type: object
+      required: [id, code, title, state, windows, eligibility]
+      properties:
+        id: {type: string, format: uuid}
+        code: {type: string}
+        title: {type: string}
+        state: {type: string, enum: [draft, scheduled, registration_open, exam_open, exam_closed, scoring, provisional_released, final_released, review_open, voided, archived]}
+        windows:
+          type: object
+          required: [attemptStartsAt, attemptEndsAt]
+          properties:
+            saleStartsAt: {type: [string, 'null'], format: date-time}
+            saleEndsAt: {type: [string, 'null'], format: date-time}
+            catalogueStartsAt: {type: [string, 'null'], format: date-time}
+            catalogueEndsAt: {type: [string, 'null'], format: date-time}
+            registrationStartsAt: {type: [string, 'null'], format: date-time}
+            registrationEndsAt: {type: [string, 'null'], format: date-time}
+            attemptStartsAt: {type: string, format: date-time}
+            attemptEndsAt: {type: string, format: date-time}
+            lateSyncCutoffAt: {type: [string, 'null'], format: date-time}
+            provisionalResultReleasesAt: {type: [string, 'null'], format: date-time}
+            finalResultReleasesAt: {type: [string, 'null'], format: date-time}
+            leaderboardReleasesAt: {type: [string, 'null'], format: date-time}
+            explanationReleasesAt: {type: [string, 'null'], format: date-time}
+            accessEndsAt: {type: [string, 'null'], format: date-time}
+        eligibility:
+          type: object
+          required: [allowed, reasonCode]
+          properties:
+            allowed: {type: boolean}
+            reasonCode: {type: string}
+            attemptsRemaining: {type: integer, minimum: 0}
+    BatchEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: '#/components/schemas/Batch'}
+    AttemptEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: '#/components/schemas/Attempt'}
+    Attempt:
+      type: object
+      additionalProperties: false
+      required: [id, batchId, status, serverNow, remainingSeconds, attemptRevision, startedAt, deadlineAt, lateSyncCutoffAt, sections, instances, currentInstanceId, answers, flags, submissionState, incidentState, accommodation, permittedActions, writerLease]
+      properties:
+        id: {type: string, format: uuid}
+        batchId: {type: string, format: uuid}
+        status: {type: string, enum: [created, in_progress, submitting, submitted, scoring, scored, voided]}
+        serverNow: {type: string, format: date-time}
+        remainingSeconds: {type: integer, minimum: 0}
+        attemptRevision: {type: integer, minimum: 0}
+        startedAt: {type: string, format: date-time}
+        deadlineAt: {type: string, format: date-time}
+        lateSyncCutoffAt: {type: string, format: date-time}
+        submittedAt: {type: [string, 'null'], format: date-time}
+        sections:
+          type: array
+          items: {$ref: '#/components/schemas/AttemptSection'}
+        instances:
+          type: array
+          items: {$ref: '#/components/schemas/StudentQuestionInstance'}
+        currentInstanceId: {type: [string, 'null'], format: uuid}
+        answers:
+          type: array
+          items: {$ref: '#/components/schemas/AnswerState'}
+        flags:
+          type: array
+          items:
+            type: object
+            required: [instanceId, flagged]
+            properties:
+              instanceId: {type: string, format: uuid}
+              flagged: {type: boolean}
+        submissionState: {type: string, enum: [not_submitted, ready, blocked_unsynced, submitting, submitted]}
+        incidentState:
+          type: object
+          additionalProperties: false
+          required: [state]
+          properties:
+            state: {type: string, enum: [none, advisory, action_required, blocking]}
+            incidentRef: {type: [string, 'null'], format: uuid}
+            safeMessage: {type: [string, 'null'], maxLength: 500}
+        accommodation:
+          type: object
+          additionalProperties: false
+          required: [extraTimeSeconds, reducedMotion, screenReaderOptimized]
+          properties:
+            extraTimeSeconds: {type: integer, minimum: 0, maximum: 43200}
+            reducedMotion: {type: boolean}
+            screenReaderOptimized: {type: boolean}
+            appliedAt: {type: [string, 'null'], format: date-time}
+        permittedActions:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [answer, flag, navigate, submit, takeover_writer, report_question, view_result]}
+        writerLease: {$ref: '#/components/schemas/WriterLease'}
+    AttemptSection:
+      type: object
+      additionalProperties: false
+      required: [code, title, order, questionCount]
+      properties:
+        code: {type: string, pattern: '^[A-Z0-9_]+$'}
+        title: {type: string, maxLength: 120}
+        order: {type: integer, minimum: 1}
+        questionCount: {type: integer, minimum: 1}
+        durationSeconds: {type: [integer, 'null'], minimum: 60}
+        navigationState: {type: string, enum: [available, current, completed, locked]}
+    StudentQuestionInstance:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, sectionCode, questionVersionId, questionType, stem, optionOrder, options, statements, media]
+      properties:
+        id: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        sectionCode: {type: string, pattern: '^[A-Z0-9_]+$'}
+        questionVersionId: {type: string, format: uuid}
+        questionType: {type: string, enum: [single_choice, multiple_choice, statement_true_false, weighted_choice, numeric]}
+        stem: {$ref: '#/components/schemas/StudentRichContent'}
+        stimulus: {oneOf: [{type: 'null'}, {$ref: '#/components/schemas/StudentRichContent'}]}
+        optionOrder:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 20}
+        options:
+          type: array
+          items: {$ref: '#/components/schemas/StudentOption'}
+        statements:
+          type: array
+          items: {$ref: '#/components/schemas/StudentStatement'}
+        media:
+          type: array
+          items: {$ref: '#/components/schemas/StudentMedia'}
+    StudentRichContent:
+      type: object
+      additionalProperties: false
+      required: [renderedHtml, plainText]
+      properties:
+        renderedHtml: {type: string, description: Server-sanitized HTML with accessible math output.}
+        plainText: {type: string}
+    StudentOption:
+      type: object
+      additionalProperties: false
+      required: [code, content, media]
+      properties:
+        code: {type: string, minLength: 1, maxLength: 20}
+        content: {$ref: '#/components/schemas/StudentRichContent'}
+        media:
+          type: array
+          items: {$ref: '#/components/schemas/StudentMedia'}
+    StudentStatement:
+      type: object
+      additionalProperties: false
+      required: [code, content, media]
+      properties:
+        code: {type: string, minLength: 1, maxLength: 20}
+        content: {$ref: '#/components/schemas/StudentRichContent'}
+        media:
+          type: array
+          items: {$ref: '#/components/schemas/StudentMedia'}
+    StudentMedia:
+      type: object
+      additionalProperties: false
+      required: [url, purpose, alt]
+      properties:
+        url: {type: string, format: uri, description: Short-lived protected URL.}
+        purpose: {type: string, enum: [informative, decorative]}
+        alt: {type: string, description: Empty only when purpose is decorative.}
+    WriterLease:
+      type: object
+      required: [state, expiresAt]
+      properties:
+        state: {type: string, enum: [held_here, held_elsewhere, expired]}
+        leaseToken: {type: [string, 'null']}
+        expiresAt: {type: string, format: date-time}
+    WriterLeaseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: '#/components/schemas/WriterLease'}
+    AnswerState:
+      type: object
+      required: [instanceId, revision, payload, persistedAt]
+      properties:
+        instanceId: {type: string, format: uuid}
+        revision: {type: integer, minimum: 0}
+        payload:
+          oneOf:
+            - {type: 'null'}
+            - {$ref: '#/components/schemas/SingleChoiceAnswer'}
+            - {$ref: '#/components/schemas/MultipleChoiceAnswer'}
+            - {$ref: '#/components/schemas/StatementAnswer'}
+            - {$ref: '#/components/schemas/NumericAnswer'}
+        persistedAt: {type: string, format: date-time}
+    AnswerSaveRequest:
+      type: object
+      additionalProperties: false
+      required: [mutationId, expectedRevision, leaseToken, answer]
+      properties:
+        mutationId: {type: string, format: uuid}
+        expectedRevision: {type: integer, minimum: 0}
+        leaseToken: {type: string, minLength: 32}
+        answer:
+          oneOf:
+            - {type: 'null'}
+            - {$ref: '#/components/schemas/SingleChoiceAnswer'}
+            - {$ref: '#/components/schemas/MultipleChoiceAnswer'}
+            - {$ref: '#/components/schemas/StatementAnswer'}
+            - {$ref: '#/components/schemas/NumericAnswer'}
+        clientObservedAt: {type: [string, 'null'], format: date-time}
+    SingleChoiceAnswer:
+      type: object
+      description: Used by both single_choice and weighted_choice question types; option weights never enter the student payload.
+      additionalProperties: false
+      required: [kind, optionCode]
+      properties:
+        kind: {const: single_choice}
+        optionCode: {type: string, minLength: 1, maxLength: 20}
+    MultipleChoiceAnswer:
+      type: object
+      additionalProperties: false
+      required: [kind, optionCodes]
+      properties:
+        kind: {const: multiple_choice}
+        optionCodes: {type: array, uniqueItems: true, items: {type: string, minLength: 1, maxLength: 20}}
+    StatementAnswer:
+      type: object
+      additionalProperties: false
+      required: [kind, values]
+      properties:
+        kind: {const: statement_true_false}
+        values: {type: object, additionalProperties: {type: boolean}}
+    NumericAnswer:
+      type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind: {const: numeric}
+        value: {type: string, pattern: '^-?[0-9]+([.,][0-9]+)?$'}
+    AnswerSaveEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data: {$ref: '#/components/schemas/AnswerState'}
+    AnswerConflict:
+      allOf:
+        - $ref: '#/components/schemas/ErrorEnvelope'
+        - type: object
+          properties:
+            currentAnswer: {$ref: '#/components/schemas/AnswerState'}
+    SubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [mutationId, leaseToken, expectedAttemptRevision]
+      properties:
+        mutationId: {type: string, format: uuid}
+        leaseToken: {type: string, minLength: 32}
+        expectedAttemptRevision: {type: integer, minimum: 0}
+        acknowledgedUnansweredCount: {type: integer, minimum: 0}
+    SubmissionEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [submissionId, attemptId, submittedAt, answerSetChecksum, resultState]
+              properties:
+                submissionId: {type: string, format: uuid}
+                attemptId: {type: string, format: uuid}
+                submittedAt: {type: string, format: date-time}
+                answerSetChecksum: {type: string}
+                resultState: {$ref: '#/components/schemas/ResultState'}
+                recoveryState: {type: string, enum: [none, candidate_stored, under_adjudication, accepted, rejected]}
+                recoveryReceiptId: {type: [string, 'null'], format: uuid}
+    ResultState:
+      type: string
+      enum: [processing, provisional, final, corrected, withheld, voided]
+    ResultEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [state]
+              properties:
+                state: {$ref: '#/components/schemas/ResultState'}
+                resultId: {type: [string, 'null'], format: uuid}
+                version: {type: [integer, 'null'], minimum: 1}
+                scoreSummary: {type: [object, 'null'], additionalProperties: true}
+                releasedAt: {type: [string, 'null'], format: date-time}
+    LeaderboardEntry:
+      type: object
+      additionalProperties: false
+      required: [rank, scoreSummary, publicOptIn]
+      properties:
+        rank: {type: integer, minimum: 1}
+        scoreSummary: {type: object, additionalProperties: true}
+        publicOptIn: {type: boolean}
+        displayAlias: {type: [string, 'null'], maxLength: 80}
+        percentile: {type: [number, 'null'], minimum: 0, maximum: 100}
+        isCurrentLearner: {type: boolean, default: false}
+    LeaderboardEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              additionalProperties: false
+              required: [state, snapshotVersion, generatedAt, entries]
+              properties:
+                state: {type: string, enum: [not_released, processing, provisional, final, corrected, disabled]}
+                snapshotVersion: {type: [integer, 'null'], minimum: 1}
+                generatedAt: {type: [string, 'null'], format: date-time}
+                policyVersion: {type: [string, 'null']}
+                entries:
+                  type: array
+                  items: {$ref: '#/components/schemas/LeaderboardEntry'}
+                ownEntry: {oneOf: [{type: 'null'}, {$ref: '#/components/schemas/LeaderboardEntry'}]}
+                nextCursor: {type: [string, 'null']}
+    QuestionReportRequest:
+      type: object
+      additionalProperties: false
+      required: [instanceId, category]
+      properties:
+        instanceId: {type: string, format: uuid}
+        category: {type: string, enum: [typo, image_missing, ambiguous_option, suspected_key, accessibility, other]}
+        note: {type: [string, 'null'], maxLength: 2000}
+        screenshotUploadRef: {type: [string, 'null'], format: uuid}
+    QuestionReportEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              additionalProperties: false
+              required: [reference, state, receivedAt]
+              properties:
+                reference: {type: string, pattern: '^QR-[A-Z0-9]+$'}
+                state: {type: string, enum: [received, in_review, resolved, linked_to_correction]}
+                receivedAt: {type: string, format: date-time}
+    ImportCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [profileCode, mode, xlsx]
+      properties:
+        profileCode: {type: string, enum: [question_import_v2, question_import_advanced_v2]}
+        mode: {type: string, enum: [create_only, update_draft, create_revision]}
+        xlsx: {$ref: '#/components/schemas/UploadDescriptor'}
+        mediaZip: {$ref: '#/components/schemas/UploadDescriptor'}
+    UploadDescriptor:
+      type: object
+      required: [fileName, sizeBytes, contentType]
+      properties:
+        fileName: {type: string}
+        sizeBytes: {type: integer, minimum: 1}
+        contentType: {type: string}
+    ImportJobEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [id, state, counts]
+              properties:
+                id: {type: string, format: uuid}
+                state: {type: string, enum: [awaiting_upload, queued, scanning, parsing, validating, preview_ready, blocked, importing, completed, partial, failed, cancelled]}
+                counts:
+                  type: object
+                  required: [total, valid, warning, error]
+                  properties:
+                    total: {type: integer, minimum: 0}
+                    valid: {type: integer, minimum: 0}
+                    warning: {type: integer, minimum: 0}
+                    error: {type: integer, minimum: 0}
+                uploadIntents:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: {type: string, enum: [xlsx, media_zip]}
+                      url: {type: string, format: uri}
+                      expiresAt: {type: string, format: date-time}
+    AccessChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [userIds, operation, policyId, reason]
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items: {type: string, format: uuid}
+        operation: {type: string, enum: [grant, suspend, resume, revoke, extend]}
+        policyId: {type: string, format: uuid}
+        validUntil: {type: [string, 'null'], format: date-time}
+        reason: {type: string, minLength: 8, maxLength: 1000}
+    AccessChangeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [id, state, impact]
+              properties:
+                id: {type: string, format: uuid}
+                state: {type: string, enum: [draft, awaiting_approval, approved, committed, rejected]}
+                impact:
+                  type: object
+                  required: [usersAffected, grantsCreated, grantsChanged]
+                  properties:
+                    usersAffected: {type: integer, minimum: 0}
+                    grantsCreated: {type: integer, minimum: 0}
+                    grantsChanged: {type: integer, minimum: 0}
+    AccommodationRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, reason, extraTimeSeconds, reducedMotion, screenReaderOptimized]
+      properties:
+        reasonCode: {type: string, pattern: '^[A-Z0-9_]+$'}
+        reason: {type: string, minLength: 8, maxLength: 1000}
+        extraTimeSeconds: {type: integer, minimum: 0, maximum: 43200}
+        reducedMotion: {type: boolean}
+        screenReaderOptimized: {type: boolean}
+        evidenceRef: {type: [string, 'null'], maxLength: 255}
+    AccommodationEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              additionalProperties: false
+              required: [id, state, beforeDeadlineAt, proposedDeadlineAt, extraTimeSeconds]
+              properties:
+                id: {type: string, format: uuid}
+                state: {type: string, enum: [draft, pending_approval, approved, applied, rejected, revoked, expired, superseded]}
+                beforeDeadlineAt: {type: string, format: date-time}
+                proposedDeadlineAt: {type: string, format: date-time}
+                extraTimeSeconds: {type: integer, minimum: 0, maximum: 43200}
+                approvalRequired: {type: boolean}
+                appliedAt: {type: [string, 'null'], format: date-time}
+    NotificationJobRequest:
+      type: object
+      additionalProperties: false
+      required: [category, channel, templateVersionId, audienceRule, scheduledAt]
+      properties:
+        category: {type: string, enum: [service, schedule, result, content, transaction, promotion]}
+        channel: {type: string, enum: [in_app, email, whatsapp]}
+        templateVersionId: {type: string, format: uuid}
+        audienceRule: {type: object, additionalProperties: true}
+        scheduledAt: {type: string, format: date-time}
+        timezone: {type: string, default: Asia/Jakarta}
+    NotificationJobEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessMeta'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              additionalProperties: false
+              required: [id, state, category, channel, scheduledAt, audience]
+              properties:
+                id: {type: string, format: uuid}
+                state: {type: string, enum: [draft, validating, scheduled, sending, completed, partial, failed, cancelled, suppressed]}
+                category: {type: string, enum: [service, schedule, result, content, transaction, promotion]}
+                channel: {type: string, enum: [in_app, email, whatsapp]}
+                scheduledAt: {type: string, format: date-time}
+                audience:
+                  type: object
+                  additionalProperties: false
+                  required: [eligible, suppressed]
+                  properties:
+                    eligible: {type: integer, minimum: 0}
+                    suppressed: {type: integer, minimum: 0}
+                    estimatedCostMinor: {type: [integer, 'null'], minimum: 0}
+    WebhookAccepted:
+      type: object
+      additionalProperties: false
+      required: [accepted, duplicate, eventReceiptId]
+      properties:
+        accepted: {type: boolean, const: true}
+        duplicate: {type: boolean}
+        eventReceiptId: {type: string, format: uuid}
+    CanonicalCommerceEvent:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, eventId, eventType, occurredAt, order, customer, amounts, rawPayloadChecksum]
+      properties:
+        schemaVersion: {const: 1}
+        eventId: {type: string, minLength: 1, maxLength: 255}
+        eventType: {type: string, enum: [order_pending, payment_settled, payment_failed, order_expired, order_cancelled, refund_full, refund_partial, chargeback_opened, chargeback_resolved]}
+        occurredAt: {type: string, format: date-time}
+        order:
+          type: object
+          additionalProperties: false
+          required: [externalOrderId, externalSkuId]
+          properties:
+            externalOrderId: {type: string, minLength: 1, maxLength: 255}
+            externalSkuId: {type: string, minLength: 1, maxLength: 255}
+            externalUserId: {type: [string, 'null'], maxLength: 255}
+        customer:
+          type: object
+          additionalProperties: false
+          properties:
+            emailHash: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+            phoneHash: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+        amounts:
+          type: object
+          additionalProperties: false
+          required: [currency, grossMinor, discountMinor, netSettledMinor]
+          properties:
+            currency: {type: string, pattern: '^[A-Z]{3}$'}
+            grossMinor: {type: integer, minimum: 0}
+            discountMinor: {type: integer, minimum: 0}
+            netSettledMinor: {type: integer, minimum: 0}
+            refundedMinor: {type: integer, minimum: 0, default: 0}
+        rawPayloadChecksum: {type: string, pattern: '^[a-f0-9]{64}$'}

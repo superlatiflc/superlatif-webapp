@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "entitlement-resolution",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "clock": "2026-08-28T12:00:00Z",
+  "cases": [
+    {
+      "id": "ENT-SYN-001",
+      "title": "Single active purchase grant allows resource",
+      "grants": [{"grantId": "g-1", "sourceType": "purchase", "sourceId": "order-1", "resource": "track:skd", "startsAt": "2026-08-01T00:00:00Z", "endsAt": "2026-12-31T23:59:59Z", "state": "active"}],
+      "query": {"subjectId": "user-1", "resource": "track:skd"},
+      "expected": {"allowed": true, "decisiveGrantIds": ["g-1"], "reasonCode": "ACTIVE_GRANT"}
+    },
+    {
+      "id": "ENT-SYN-002",
+      "title": "Refund from one source preserves overlapping scholarship",
+      "grants": [
+        {"grantId": "g-2a", "sourceType": "purchase", "sourceId": "order-2", "resource": "track:skd", "startsAt": "2026-08-01T00:00:00Z", "endsAt": "2026-12-31T23:59:59Z", "state": "revoked"},
+        {"grantId": "g-2b", "sourceType": "scholarship", "sourceId": "scholarship-7", "resource": "track:skd", "startsAt": "2026-08-01T00:00:00Z", "endsAt": "2027-01-31T23:59:59Z", "state": "active"}
+      ],
+      "query": {"subjectId": "user-2", "resource": "track:skd"},
+      "expected": {"allowed": true, "decisiveGrantIds": ["g-2b"], "ignoredGrantIds": ["g-2a"], "reasonCode": "OVERLAPPING_ACTIVE_GRANT"}
+    },
+    {
+      "id": "ENT-SYN-003",
+      "title": "Expired grant denies access at exact boundary",
+      "grants": [{"grantId": "g-3", "sourceType": "purchase", "sourceId": "order-3", "resource": "exam:batch-3", "startsAt": "2026-08-01T00:00:00Z", "endsAt": "2026-08-28T12:00:00Z", "state": "active"}],
+      "query": {"subjectId": "user-3", "resource": "exam:batch-3"},
+      "expected": {"allowed": false, "decisiveGrantIds": [], "ignoredGrantIds": ["g-3"], "reasonCode": "NO_ACTIVE_GRANT"}
+    },
+    {
+      "id": "ENT-SYN-004",
+      "title": "Revocation cannot target a grant owned by another source",
+      "grants": [{"grantId": "g-4", "sourceType": "manual", "sourceId": "manual-case-4", "resource": "program:aks-2026", "startsAt": "2026-08-01T00:00:00Z", "endsAt": null, "state": "active"}],
+      "action": {"type": "revoke", "actorSourceType": "purchase", "actorSourceId": "order-4", "targetGrantId": "g-4"},
+      "expected": {"accepted": false, "reasonCode": "SOURCE_OWNERSHIP_MISMATCH", "grantState": "active"}
+    },
+    {
+      "id": "ENT-SYN-005",
+      "title": "Rebuild produces same effective access",
+      "grants": [
+        {"grantId": "g-5a", "sourceType": "purchase", "sourceId": "order-5", "resource": "program:aks-2026", "startsAt": "2026-08-01T00:00:00Z", "endsAt": "2026-12-31T23:59:59Z", "state": "active"},
+        {"grantId": "g-5b", "sourceType": "bonus", "sourceId": "campaign-5", "resource": "exam:batch-5", "startsAt": "2026-08-20T00:00:00Z", "endsAt": "2026-09-01T00:00:00Z", "state": "active"}
+      ],
+      "cached": ["program:aks-2026", "exam:batch-5"],
+      "expected": {"rebuilt": ["exam:batch-5", "program:aks-2026"], "drift": []}
+    }
+  ]
+}

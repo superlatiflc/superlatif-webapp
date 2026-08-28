@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "purchase-events",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "providerNotice": "Payloads are canonical synthetic envelopes, not evidence of a live Sejoli contract.",
+  "cases": [
+    {
+      "id": "COM-SYN-001",
+      "title": "Paid purchase produces one active grant",
+      "events": [{"eventId": "evt-1", "eventType": "purchase.paid", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-1", "externalOrderId": "ord-ext-1", "sku": "SKD-ONLY-90D", "subjectExternalId": "wp-user-1"}],
+      "expected": {"processedEvents": 1, "grantsCreated": 1, "grantState": "active", "deadLetters": 0}
+    },
+    {
+      "id": "COM-SYN-002",
+      "title": "Exact replay is idempotent",
+      "events": [
+        {"eventId": "evt-2", "eventType": "purchase.paid", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-2", "externalOrderId": "ord-ext-2", "sku": "TO-SKD-B01", "subjectExternalId": "wp-user-2"},
+        {"eventId": "evt-2", "eventType": "purchase.paid", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-2", "externalOrderId": "ord-ext-2", "sku": "TO-SKD-B01", "subjectExternalId": "wp-user-2"}
+      ],
+      "expected": {"processedEvents": 1, "duplicateEvents": 1, "grantsCreated": 1, "deadLetters": 0}
+    },
+    {
+      "id": "COM-SYN-003",
+      "title": "Refund arriving before paid is reconciled by event time and source",
+      "events": [
+        {"eventId": "evt-3b", "eventType": "purchase.refunded", "occurredAt": "2026-08-28T11:00:00Z", "purchaseId": "pur-3", "externalOrderId": "ord-ext-3", "sku": "SKD-ONLY-90D", "subjectExternalId": "wp-user-3"},
+        {"eventId": "evt-3a", "eventType": "purchase.paid", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-3", "externalOrderId": "ord-ext-3", "sku": "SKD-ONLY-90D", "subjectExternalId": "wp-user-3"}
+      ],
+      "expected": {"purchaseState": "refunded", "grantState": "revoked", "reasonCode": "REFUNDED", "deadLetters": 0}
+    },
+    {
+      "id": "COM-SYN-004",
+      "title": "Unknown event type is quarantined",
+      "events": [{"eventId": "evt-4", "eventType": "purchase.mystery", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-4", "externalOrderId": "ord-ext-4", "sku": "UNKNOWN", "subjectExternalId": "wp-user-4"}],
+      "expected": {"processedEvents": 0, "grantsCreated": 0, "deadLetters": 1, "reasonCode": "UNKNOWN_EVENT_TYPE"}
+    },
+    {
+      "id": "COM-SYN-005",
+      "title": "Invalid signature never reaches normalization",
+      "transport": {"signatureValid": false},
+      "events": [{"eventId": "evt-5", "eventType": "purchase.paid", "occurredAt": "2026-08-28T10:00:00Z", "purchaseId": "pur-5", "externalOrderId": "ord-ext-5", "sku": "TKA-2026", "subjectExternalId": "wp-user-5"}],
+      "expected": {"httpStatus": 401, "rawEventStored": true, "normalizedEvents": 0, "grantsCreated": 0}
+    }
+  ]
+}

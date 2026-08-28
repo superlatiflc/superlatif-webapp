@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureSet": "exam-attempt-lifecycle",
+  "evidenceClass": "synthetic",
+  "productionEligible": false,
+  "clock": "2026-08-28T12:00:00Z",
+  "cases": [
+    {
+      "id": "ATM-SYN-001",
+      "title": "Authorized start pins immutable snapshot",
+      "given": {"access": true, "batchState": "attempt_open", "blueprintVersion": "bp-syn-v1", "formVersion": "form-syn-v3", "durationSeconds": 600},
+      "action": {"type": "start", "idempotencyKey": "start-1"},
+      "expected": {"state": "in_progress", "deadlineAt": "2026-08-28T12:10:00Z", "snapshotContains": ["bp-syn-v1", "form-syn-v3"], "attemptCount": 1}
+    },
+    {
+      "id": "ATM-SYN-002",
+      "title": "Duplicate answer save is idempotent",
+      "given": {"attemptState": "in_progress", "leaseId": "lease-2", "questionId": "q-2"},
+      "actions": [
+        {"type": "save_answer", "requestId": "ans-2", "clientSequence": 4, "answer": "B"},
+        {"type": "save_answer", "requestId": "ans-2", "clientSequence": 4, "answer": "B"}
+      ],
+      "expected": {"acceptedWrites": 1, "answer": "B", "lastSequence": 4}
+    },
+    {
+      "id": "ATM-SYN-003",
+      "title": "Older client sequence cannot overwrite newer answer",
+      "given": {"attemptState": "in_progress", "leaseId": "lease-3", "questionId": "q-3", "stored": {"clientSequence": 9, "answer": "D"}},
+      "action": {"type": "save_answer", "requestId": "ans-3", "clientSequence": 8, "answer": "A"},
+      "expected": {"accepted": false, "reasonCode": "STALE_SEQUENCE", "answer": "D", "lastSequence": 9}
+    },
+    {
+      "id": "ATM-SYN-004",
+      "title": "Second device encounters active lease",
+      "given": {"attemptState": "in_progress", "activeLease": {"leaseId": "lease-4a", "deviceId": "device-a", "expiresAt": "2026-08-28T12:02:00Z"}},
+      "action": {"type": "resume", "deviceId": "device-b"},
+      "expected": {"accepted": false, "reasonCode": "ACTIVE_DEVICE_LEASE", "takeoverAvailable": true}
+    },
+    {
+      "id": "ATM-SYN-005",
+      "title": "Server expiry wins against manipulated client clock",
+      "clock": "2026-08-28T12:11:00Z",
+      "given": {"attemptState": "in_progress", "deadlineAt": "2026-08-28T12:10:00Z", "clientReportedRemainingSeconds": 480},
+      "action": {"type": "save_answer", "requestId": "ans-5", "clientSequence": 5, "answer": "C"},
+      "expected": {"accepted": false, "reasonCode": "ATTEMPT_EXPIRED", "finalizationQueued": true}
+    },
+    {
+      "id": "ATM-SYN-006",
+      "title": "Double submit creates one finalization",
+      "given": {"attemptState": "in_progress", "deadlineAt": "2026-08-28T12:10:00Z"},
+      "actions": [{"type": "submit", "idempotencyKey": "submit-6"}, {"type": "submit", "idempotencyKey": "submit-6"}],
+      "expected": {"state": "submitted", "finalizationJobs": 1, "duplicateResponses": 1}
+    }
+  ]
+}
