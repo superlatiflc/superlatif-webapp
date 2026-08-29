@@ -100,3 +100,16 @@ export const liveSessionStatus = pgEnum("live_session_status", [
   "cancelled",
   "rescheduled",
 ]);
+
+// dok 15 §4 "Question types MVP" - transcribed verbatim (QST-001). "shared
+// stimulus/passage" and "text, formula, table, and images" are content
+// FORMATS a question of any type can carry (stem/option/explanation
+// documents, stimulus link), not question types of their own - they are not
+// listed here.
+export const questionType = pgEnum("question_type", [
+  "single_choice",
+  "multiple_choice",
+  "true_false",
+  "weighted_choice",
+  "numeric",
+]);

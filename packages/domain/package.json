@@ -11,6 +11,7 @@
     "./commerce": "./src/commerce/index.ts",
     "./authorization": "./src/authorization/index.ts",
     "./program": "./src/program/index.ts",
+    "./exam": "./src/exam/index.ts",
     "./shared": "./src/shared/index.ts"
   },
   "types": "./src/index.ts",
