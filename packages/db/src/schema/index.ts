@@ -15,4 +15,14 @@ export {
   changeDecisionOutcome,
   changeExecutionStatus,
 } from "./access-change.ts";
-export { programEnrollments, programs } from "./program.ts";
+export { programs } from "./program.ts";
+export {
+  modules,
+  programEnrollments,
+  programVersions,
+  resourcePlacements,
+  resourceVersions,
+  resources,
+  roadmapStages,
+  tracks,
+} from "./curriculum.ts";

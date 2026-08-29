@@ -657,6 +657,57 @@ The founder instruction requires a rendered denied/unauthorized UI state, not on
 
 `packages/domain/src/program` and `packages/db/src/program` follow the same pure-logic/persistence split every prior domain area uses. `apps/web` gains its first real dependencies on `@superlatif/domain`, `@superlatif/db`, and `@superlatif/ui`, and its first database-backed routes. `.claude/launch.json` and `apps/web/.env.local` (gitignored) were added purely as local dev-preview tooling - the latter carries no secrets (`DATABASE_URL` is deliberately left unset). `PRG-002` (versioned curriculum) is expected to supply real `ROADMAP_NEXT` candidates and Program Hub facility flags; `SCH-001`/`EXM` series/`LRN` series/a future result-correction task are expected to supply the other six next-action candidate types, all against the exact `NextActionCandidate` contract this task ships.
 
+## ADR-053 — PRG-002: versioned curriculum schema (with a documented deviation from the Gate 3 draft), service-layer immutability instead of a checksum, per-enrollment version pinning, and release rules as a pure resolver
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** PRG-002 (versioned curriculum, tracks, modules, and release rules).
+
+### Schema scope: the full dok 21 §6 tree except `assets`, `onboarding_responses`, `resource_progress`, `progress_events`, `progress_projections`
+
+This task builds `program_versions`, `tracks`, `roadmap_stages`, `modules`, `resources`, `resource_versions`, and `resource_placements` - everything ADR-052 deferred from dok 21 §6's "Programs and content" list except the five tables above. Those five stay out because they need capability this task's boundaries explicitly exclude: `assets` needs real object storage ("Jangan integrasi object storage/CDN/provider file nyata dulu" - founder instruction); `onboarding_responses`/`resource_progress`/`progress_events`/`progress_projections` need a progress-tracking task (the LRN series) this codebase does not have yet. `resource_versions.body` (untyped JSONB) carries whatever a resource type needs as an opaque reference - including, eventually, an object-storage key - without this task's code ever calling a real provider.
+
+### Two deliberate deviations from `contracts/drizzle-schema.ts`'s draft shape, both documented rather than silent
+
+Table shapes are transcribed from the Gate 3 contract the same "reference, not import" way `enums.ts`/`access.ts` already established (ADR-047). Two places this task's actual schema differs from that draft, both recorded in `packages/db/src/schema/curriculum.ts`'s module doc, not discovered later as drift:
+
+1. `resource_versions` has no `primaryAssetId` - see the scope note above; there is no `assets` table for it to reference.
+2. `modules` gains an independent `status` (`record_status`) column the draft does not have - the draft's tracks/roadmap_stages/modules have no status of their own, only the whole `program_version` does. The founder instruction explicitly requires an "archived module hidden" test, which needs a per-module archive action independent of retiring an entire program version. This reuses the existing `record_status` enum's value set (draft/in_review/changes_requested/approved/published/archived) rather than inventing new vocabulary - satisfying CLAUDE.md's "No new unauthorized state vocabulary" while still meeting the acceptance criterion. New modules default to `status: "published"`: there is no independent module-level draft/review workflow being built in this task (no admin CMS), only the parent version's draft gate (below) and the one-way `archiveModule` transition.
+
+Per CLAUDE.md's source-of-truth conflict process, this is reported here as a deliberate, minimal, additive reconciliation - not a silent redefinition - since it does not contradict anything the Gate 3 draft or any higher-layer document states, only adds a capability the draft's snippet happened not to need yet.
+
+### Immutability is a service-layer write guard, not a checksum - because a curriculum version is a relational tree, not one document
+
+Every other versioned artifact in this codebase (`access_policies`, and this task's own `resource_versions`) proves immutability with a stored checksum over one JSONB `config`/`body` column (ADR-014's discipline). A `program_version`'s content is spread across four child tables (`tracks`/`roadmap_stages`/`modules`/`resource_placements`) as separate rows - there is no single document a checksum could cover in one write. `publishProgramVersion` therefore enforces immutability structurally instead: every repository function that attaches curriculum structure (`createTrack`/`createRoadmapStage`/`createModule`/`createResourcePlacement`) first checks its program version's `status` is still `"draft"` (`ProgramVersionLockedError` otherwise) before it will insert anything. `lockedAt` is stamped at publish time for the same audit purpose ADR-014 already establishes, just without a checksum alongside it.
+
+### Circular prerequisite rejection happens at publish, exactly where dok 14 §6 says it should
+
+"Circular dependency ditolak saat publish" (dok 14 §6) is implemented as a pure graph-cycle-detection function (`@superlatif/domain/program#findCircularPrerequisite`, DFS with a recursion stack) run across every placement in the whole program version being published - not per module, since a prerequisite can point anywhere in the same version. `publishProgramVersion` runs this check before opening its status-flip transaction; a cycle throws `CircularPrerequisiteError` and nothing is written.
+
+### `resourceVersion` must already be published before it can be placed - enforced the same way `access.ts`'s grant/policy pairing already is
+
+`createResourcePlacement`'s `releasedResourceVersionId` references a specific resource version row; the schema's foreign key alone can express "this row exists," not "this row's status is published." The repository re-checks the referenced row's `status` explicitly (`ResourceVersionNotPublishedError` otherwise) - the same class of application-layer guard `access.ts`'s module doc already documents for grant/policy pairing (ADR-047), applied here to a second, unrelated pairing.
+
+### Release rules are one pure resolver over an explicit five-mode union - matching dok 14 §6 exactly, with no rule kind left implicit
+
+`@superlatif/domain/program/release-rule.ts`'s `ReleaseRule` union has exactly the five kinds dok 14 §6 names: `immediate`, `fixed_datetime` ("scheduled release" in the founder instruction), `relative_to_enrollment` ("drip" - each learner's own release date shifts with when THEY enrolled), `after_prerequisite`, and `manual`. `resolveReleaseState` is a pure, injected-clock function (no wall-clock read, no I/O) that resolves any one rule against a point-in-time learner context to `"locked" | "released"` - the same discipline as ENT-002's `getEffectiveAccess` and PRG-001's `resolveNextAction`. `resolveModuleVisibility` layers a module's own lifecycle status on top: `archived` always wins over any release rule ("archived module hidden" is unconditional), a module that is not yet `published` is hidden as a distinctly reason-coded `hidden_unpublished` (not confused with `hidden_archived`), and only a genuinely published module's release rule is consulted at all.
+
+`after_prerequisite`'s `completedPlacementIds` context is always an empty set in this task - there is no progress-tracking task (LRN series) yet to report real completions, so every `after_prerequisite` placement stays honestly locked rather than this task guessing at completion. This is the same "ship the resolver against the real contract, wire zero fabricated data sources" pattern ADR-052 already used for `resolveNextAction`.
+
+### Per-enrollment version pinning: set at most once, by `syncProgramEnrollments`, never migrated automatically
+
+dok 14 §7: "Jika program version baru dipublish: enrollment aktif tidak dipindah diam-diam." `program_enrollments` gains a `pinnedProgramVersionId` column (nullable). `syncProgramEnrollments` sets it to the program's current published version ONLY while the column is still `null` for that enrollment - a brand-new enrollment (or one that existed before any version had published) adopts the first published version it observes, exactly once; an already-pinned enrollment is never touched again by this function, even after a newer version publishes. This single rule is what makes "existing learners retain pinned behavior" true in code, without building dok 14 §7's admin "keep / migrate with mapping / new cohorts only" workflow - that remains explicitly out of this task's scope, a future admin-facing task's to build.
+
+`program_enrollments` itself moved from `program.ts` into `curriculum.ts` (same table, same name, same data) purely to avoid a circular ES module import: the new `pinnedProgramVersionId` column needs `programVersions`, which needs `programs` from `program.ts` - defining both tables that need each other's neighbour in one file sidesteps the cycle rather than relying on cross-file lazy-reference semantics. `drizzle-kit generate` confirms this was a pure file reorganization, not a schema change: the generated migration is an `ALTER TABLE program_enrollments ADD COLUMN`, not a drop/recreate.
+
+### A latent PRG-001 bug this task's own tests surfaced: `enrolledAt` was never stamped from the injected clock
+
+`syncProgramEnrollments`'s insert never set `enrolledAt` explicitly, silently falling back to the column's `defaultNow()` (real wall-clock time) instead of the function's own injected `now` parameter. This was invisible in PRG-001 (nothing there depended on `enrolledAt` matching the injected clock precisely), but this task's `relative_to_enrollment` (drip) release rule measures directly from it, and a test enrolling a learner at an injected future timestamp caught the mismatch immediately. Fixed by stamping `enrolledAt: now` explicitly on insert - the same "inject clock" discipline (CLAUDE.md) every other resolver in this codebase already follows, now actually enforced at the one write site that was missing it.
+
+### Consequences
+
+No route or page in `apps/web` calls this task's curriculum-service yet - `getProgramCurriculum` is a read model the future roadmap/Hub page (`PRG-003`+) will call, deliberately not built here ("Jangan bangun full LMS player dulu" - founder instruction). No admin UI exists to drive `createProgramVersionDraft`/`createTrack`/.../`publishProgramVersion` - every curriculum-building function in this task is server-side service/API-layer ready, exercised only by this task's own integration tests, the same "service ready, UI deferred" shape ENT-004 already used for manual grants.
+
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
 
 - ADR-006 identity bridge;
