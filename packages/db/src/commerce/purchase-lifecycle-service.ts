@@ -100,7 +100,7 @@ async function raiseReconciliation(
   return record.id;
 }
 
-interface StatusEffects {
+export interface StatusEffects {
   readonly grantsIssued: string[];
   readonly grantsRevoked: string[];
 }
@@ -109,8 +109,15 @@ interface StatusEffects {
  * Applies the grant-side effect of a purchase reaching `status`, if any.
  * `pending`/`failed`/`expired` have none - the purchase projection update
  * (already done by the caller) is the whole effect for those.
+ *
+ * Exported (COM-006) so `reconciliation-repair-service.ts` can call the
+ * EXACT SAME grant-issuance/revocation code a normal webhook-driven
+ * transition uses, once a repair has resolved the underlying blocker
+ * (SKU mapping added, identity linked) - "repair yang menyentuh grants
+ * harus reuse ENT-001/ENT-002 functions, jangan bikin write path baru"
+ * applied literally: no second implementation of this logic exists.
  */
-async function applyPurchaseStatusEffects(
+export async function applyPurchaseStatusEffects(
   tx: Parameters<typeof issueGrantAndInvalidate>[0],
   cache: EffectiveAccessCache,
   purchase: PurchaseRow,
