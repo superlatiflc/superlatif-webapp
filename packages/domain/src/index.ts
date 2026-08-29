@@ -17,4 +17,5 @@ export * as access from "./access/index.ts";
 export * as commerce from "./commerce/index.ts";
 export * as authorization from "./authorization/index.ts";
 export * as program from "./program/index.ts";
+export * as exam from "./exam/index.ts";
 export * as shared from "./shared/index.ts";

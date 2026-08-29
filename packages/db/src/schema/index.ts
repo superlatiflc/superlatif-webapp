@@ -2,6 +2,7 @@ export {
   grantEventType,
   liveSessionStatus,
   purchaseState,
+  questionType,
   recordStatus,
   recordingProcessingStatus,
   scheduleItemType,
@@ -45,3 +46,12 @@ export {
   liveSessions,
   scheduleItems,
 } from "./schedule.ts";
+export {
+  questionAssets,
+  questionOptions,
+  questionVersionSecrets,
+  questionVersions,
+  questions,
+  stimulusVersions,
+  stimuli,
+} from "./questions.ts";
