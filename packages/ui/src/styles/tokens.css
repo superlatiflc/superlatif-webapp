@@ -1,0 +1,131 @@
+/*
+ * Superlatif Calm Momentum design tokens (PRG-001).
+ *
+ * Transcribed directly from docs/gates/11_DESIGN_SYSTEM.md §3-9. Values are
+ * the document's own "proposal awal... harus diverifikasi pada mockup
+ * final" - this file changes when that doc's token values change, never
+ * the other way around. Light theme only: 11_DESIGN_SYSTEM.md §20 "Tema"
+ * does not define a dark palette yet.
+ */
+
+:root {
+  /* §3.1 Brand */
+  --slf-brand-900: #0b4f45;
+  --slf-brand-700: #087a63;
+  --slf-brand-500: #03d37b;
+  --slf-brand-200: #a9eed5;
+  --slf-brand-100: #ddf8ee;
+  --slf-brand-50: #effbf7;
+
+  /* §3.2 Neutral */
+  --slf-neutral-950: #102522;
+  --slf-neutral-700: #38544e;
+  --slf-neutral-600: #55706a;
+  --slf-neutral-500: #6d817c;
+  --slf-neutral-400: #91a6a1;
+  --slf-neutral-250: #c7d5d1;
+  --slf-neutral-150: #d9e5e2;
+  --slf-neutral-75: #edf3f1;
+  --slf-neutral-25: #f6faf9;
+  --slf-white: #ffffff;
+
+  /* §3.3 Semantic (strong / surface / border) */
+  --slf-success-strong: #087a55;
+  --slf-success-surface: #dff8ec;
+  --slf-success-border: #91dfc2;
+  --slf-info-strong: #2d6cdf;
+  --slf-info-surface: #e8f0ff;
+  --slf-info-border: #abc3f5;
+  --slf-warning-strong: #8a4b00;
+  --slf-warning-surface: #fff3d6;
+  --slf-warning-border: #f0cd83;
+  --slf-danger-strong: #b42318;
+  --slf-danger-surface: #fee4e2;
+  --slf-danger-border: #f2a6a0;
+
+  /* §4 Surface, elevation, border */
+  --slf-surface-canvas: var(--slf-neutral-25);
+  --slf-surface-default: var(--slf-white);
+  --slf-surface-subtle: var(--slf-neutral-75);
+  --slf-surface-brand: var(--slf-brand-50);
+  --slf-surface-inverted: var(--slf-brand-900);
+  --slf-border-default: var(--slf-neutral-150);
+  --slf-border-strong: var(--slf-neutral-250);
+  --slf-border-functional: var(--slf-neutral-500);
+  --slf-focus-ring: var(--slf-brand-900);
+  --slf-elevation-1: 0 1px 2px rgba(16, 37, 34, 0.08), 0 1px 1px rgba(16, 37, 34, 0.04);
+  --slf-elevation-2: 0 4px 12px rgba(16, 37, 34, 0.12);
+  --slf-elevation-3: 0 12px 32px rgba(16, 37, 34, 0.18);
+
+  /* §5.1 Typography families */
+  --slf-font-sans: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  --slf-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* §5.2 Type scale (size/line-height/weight) */
+  --slf-type-heading-xl-size: 28px;
+  --slf-type-heading-xl-line: 36px;
+  --slf-type-heading-xl-weight: 700;
+  --slf-type-heading-lg-size: 24px;
+  --slf-type-heading-lg-line: 32px;
+  --slf-type-heading-lg-weight: 700;
+  --slf-type-heading-md-size: 20px;
+  --slf-type-heading-md-line: 28px;
+  --slf-type-heading-md-weight: 600;
+  --slf-type-heading-sm-size: 18px;
+  --slf-type-heading-sm-line: 26px;
+  --slf-type-heading-sm-weight: 600;
+  --slf-type-body-md-size: 16px;
+  --slf-type-body-md-line: 24px;
+  --slf-type-body-sm-size: 14px;
+  --slf-type-body-sm-line: 20px;
+  --slf-type-label-md-size: 14px;
+  --slf-type-label-md-line: 20px;
+  --slf-type-label-md-weight: 600;
+  --slf-type-label-sm-size: 12px;
+  --slf-type-label-sm-line: 16px;
+  --slf-type-label-sm-weight: 600;
+  --slf-type-caption-size: 12px;
+  --slf-type-caption-line: 16px;
+
+  /* §6 Spacing (4px base) */
+  --slf-space-1: 4px;
+  --slf-space-2: 8px;
+  --slf-space-3: 12px;
+  --slf-space-4: 16px;
+  --slf-space-5: 20px;
+  --slf-space-6: 24px;
+  --slf-space-8: 32px;
+  --slf-space-10: 40px;
+  --slf-space-12: 48px;
+  --slf-space-16: 64px;
+  --slf-touch-target-min: 44px;
+
+  /* §7 Radius */
+  --slf-radius-sm: 8px;
+  --slf-radius-md: 12px;
+  --slf-radius-lg: 16px;
+  --slf-radius-full: 999px;
+
+  /* §8 Motion */
+  --slf-duration-fast: 120ms;
+  --slf-duration-base: 180ms;
+  --slf-duration-slow: 240ms;
+  --slf-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* §9 Layout */
+  --slf-layout-content-max: 1200px;
+  --slf-layout-reading-max: 760px;
+  --slf-layout-sidebar: 248px;
+  --slf-layout-gutter-mobile: 16px;
+  --slf-layout-gutter-tablet: 24px;
+  --slf-layout-gutter-desktop: 32px;
+}
+
+/* §8 "Reduced motion menghapus transform/gerak dan mempertahankan feedback instan." */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --slf-duration-fast: 0ms;
+    --slf-duration-base: 0ms;
+    --slf-duration-slow: 0ms;
+  }
+}

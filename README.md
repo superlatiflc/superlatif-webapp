@@ -150,37 +150,51 @@ Script yang belum dikonfigurasi sengaja **gagal**, bukan lulus diam-diam. `CLAUD
 - **Test negatif wajib** (`packages/db/src/access/manual-change-service.integration.test.ts`): unauthorized actor, missing reason, self-approval, revoking purchase grant by mutation, stale effective access cache — semua lulus lewat DB nyata.
 - Tidak ada UI admin dan tidak ada WordPress/Sejoli bridge pada task ini — keduanya di luar scope ENT-004 secara eksplisit.
 
+## Program-centric home, active context, dan cross-product dedup (PRG-001)
+
+- **Route pertama yang menyentuh database**: `apps/web/src/app/home` dan `apps/web/src/app/programs/[programCode]` adalah route HTTP pertama di repository ini yang benar-benar memanggil `@superlatif/db` — setiap ADR sebelumnya (ADR-046–051) mencatat "belum ada route yang memanggil layer ini." `userId` dibaca dari query string sebagai placeholder autentikasi yang didokumentasikan eksplisit (belum ada session/cookie) — bukan kontrol keamanan; otorisasi tetap sepenuhnya lewat `authorize()` (IDN-004) + effective access (ENT-002). Lihat ADR-052.
+- **Schema minimal**: `programs` (identitas stabil, `code` memakai konvensi `program:` yang sama dengan fixture ENT-001/COM-001) + `program_enrollments` (proyeksi presentasi, "Enrollment bukan authorization source" per dok 21 §6). `program_versions`/`tracks`/`roadmap_stages`/`modules`/`resources` sengaja tidak dibuat — itu scope `PRG-002`.
+- **Cross-product dedup gratis dari ENT-002**: `listAccessibleProgramsForUser` memanggil `getEffectiveAccess` sekali per program DISTINCT (bukan per grant) — program yang di-grant dua produk berbeda muncul tepat satu kali, sebelum baris enrollment pun dipertimbangkan.
+- **`isPrimary` adalah pengecualian mutable yang disengaja**: satu-satunya field di seluruh codebase yang benar-benar di-`UPDATE` (bukan event-sourced) — preferensi siswa yang hidup, bukan fakta historis, sama seperti `user_sessions.lastSeenAt` (IDN-001). `setPrimaryProgram` menegakkan "maksimal satu primary per user" dalam transaksi.
+- **Next-action resolver dikirim penuh, tanpa sumber kandidat**: `packages/domain/src/program/next-action.ts#resolveNextAction` mengimplementasikan seluruh tabel prioritas 7-tingkat dok 09 §5 (LIVE_NOW…OPTIONAL_RECOMMENDATION) + tie-break, teruji penuh — tapi dipanggil dengan `[]` di task ini karena tidak ada sumber data nyata (SCH-001/EXM/PRG-002/LRN belum ada). Task berikutnya cukup memproduksi `NextActionCandidate`, tidak perlu menurunkan ulang urutan/reason code.
+- **`resolveProgramHubTabs` (PRG-004) teruji, halaman Program Hub tidak dibangun**: dengan seluruh facility flag `false` (belum ada roadmap/jadwal/tryout/materi/komunitas/progres), fungsi ini benar-benar hanya mengembalikan tab `ringkasan` — bukti literal "tab kosong disembunyikan," bukan placeholder.
+- **State denied/unauthorized adalah UI nyata**: `apps/web/src/app/programs/[programCode]/page.tsx` sengaja dibangun sempit untuk memberi `assertProgramAccess`'s `ENTITLEMENT_DENIED`/`OBJECT_SCOPE_DENIED` tempat render nyata — bukan hanya keputusan backend.
+- **`packages/ui` mendapat isi pertamanya**: token dari dok 11 §3–9 (`tokens.css`) + lima komponen (`ProgramCard`, `NextActionCard`, `EmptyState`, `StatusBadge` — status tidak pernah warna-saja, `Skeleton`). CSS mobile-first, diverifikasi live di 320 CSS px tanpa scroll horizontal.
+- **Test wajib** (`packages/domain/src/program/*.test.ts`, `packages/db/src/program/home-view-service.integration.test.ts`): active program selection (manual vs auto vs recency), cross-product dedup, no active program, unauthorized access — semua lulus lewat DB nyata (pglite). Environment ini tidak memiliki Docker/Postgres lokal (sama seperti ADR-046) — state loading/no-session/error diverifikasi visual di browser; state DB-backed diverifikasi lewat integration test, bukan screenshot langsung.
+- Tidak membangun seluruh LMS, live class, tryout engine, atau admin UI pada task ini — semuanya di luar scope PRG-001 secara eksplisit. Lihat ADR-052.
+
 ## Struktur
 
-| Path                                | Fungsi                                                                                                                                    |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLAUDE.md`                         | Instruksi persistent yang dibaca Claude Code                                                                                              |
-| `.claude/skills/`                   | Empat skill domain Superlatif                                                                                                             |
-| `docs/gates/`                       | Dokumen canonical Gates 1–4                                                                                                               |
-| `docs/audit/`                       | Findings dan audit closure                                                                                                                |
-| `docs/source/`                      | Instruksi awal dan deck brand                                                                                                             |
-| `contracts/`                        | OpenAPI, JSON Schema, template import, kontrak Gate 3                                                                                     |
-| `planning/`                         | Backlog implementasi dan release-gate evidence contract                                                                                   |
-| `test/fixtures/contracts/`          | Fixture sintetis untuk contract/integration tests                                                                                         |
-| `scripts/`                          | Validator starter, boundary check, migration guard                                                                                        |
-| `apps/web`                          | Deployment unit student/admin web dan BFF (Next.js App Router)                                                                            |
-| `apps/worker`                       | Deployment unit background worker                                                                                                         |
-| `packages/contracts`                | Tipe kontrak bersama turunan `contracts/`                                                                                                 |
-| `packages/domain`                   | Modul domain murni; tanpa UI dan tanpa vendor SDK                                                                                         |
-| `packages/domain/src/identity`      | Pure domain: session crypto, identity-linking policy (IDN-001)                                                                            |
-| `packages/domain/src/access`        | Pure domain: validity, grant status, dedupe, checksum (ENT-001); effective-access resolver, attempt allowance, in-process cache (ENT-002) |
-| `packages/domain/src/commerce`      | Pure domain: bundle composition, offer sale-state, SKU mapping resolution (COM-001)                                                       |
-| `packages/domain/src/authorization` | Pure domain: RBAC matrix, object-scope/entitlement/maker-checker checks, `authorize()` (IDN-004)                                          |
-| `packages/domain/src/shared`        | Canonical-JSON checksum shared by access/ and commerce/ (promoted in COM-001)                                                             |
-| `packages/db`                       | Drizzle schema dan migration (IDN-001: identity; ENT-001: access; COM-001: commerce; IDN-004: authorization; ENT-004: access-change)      |
-| `packages/db/src/schema`            | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                                                                                   |
-| `packages/db/drizzle/`              | Migration SQL ter-generate — **commit**, jangan diedit manual                                                                             |
-| `packages/ui`                       | Primitive design system student/admin                                                                                                     |
-| `packages/observability`            | Structured logging, redaksi, correlation ID, manifest evidence                                                                            |
-| `packages/integrations`             | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03                                                                               |
-| `packages/testing`                  | Factory, clock injection, seeded randomness, provider fake                                                                                |
-| `.gitleaks.toml`                    | Konfigurasi Gitleaks repo-lokal (BD-08)                                                                                                   |
-| `.cache/gitleaks/`                  | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan`                                                                   |
+| Path                                | Fungsi                                                                                                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE.md`                         | Instruksi persistent yang dibaca Claude Code                                                                                                                              |
+| `.claude/skills/`                   | Empat skill domain Superlatif                                                                                                                                             |
+| `docs/gates/`                       | Dokumen canonical Gates 1–4                                                                                                                                               |
+| `docs/audit/`                       | Findings dan audit closure                                                                                                                                                |
+| `docs/source/`                      | Instruksi awal dan deck brand                                                                                                                                             |
+| `contracts/`                        | OpenAPI, JSON Schema, template import, kontrak Gate 3                                                                                                                     |
+| `planning/`                         | Backlog implementasi dan release-gate evidence contract                                                                                                                   |
+| `test/fixtures/contracts/`          | Fixture sintetis untuk contract/integration tests                                                                                                                         |
+| `scripts/`                          | Validator starter, boundary check, migration guard                                                                                                                        |
+| `apps/web`                          | Deployment unit student/admin web dan BFF (Next.js App Router); `/home` dan `/programs/[code]` route pertama yang memanggil database (PRG-001)                            |
+| `apps/worker`                       | Deployment unit background worker                                                                                                                                         |
+| `packages/contracts`                | Tipe kontrak bersama turunan `contracts/`                                                                                                                                 |
+| `packages/domain`                   | Modul domain murni; tanpa UI dan tanpa vendor SDK                                                                                                                         |
+| `packages/domain/src/identity`      | Pure domain: session crypto, identity-linking policy (IDN-001)                                                                                                            |
+| `packages/domain/src/access`        | Pure domain: validity, grant status, dedupe, checksum (ENT-001); effective-access resolver, attempt allowance, in-process cache (ENT-002); manual-change status (ENT-004) |
+| `packages/domain/src/commerce`      | Pure domain: bundle composition, offer sale-state, SKU mapping resolution (COM-001)                                                                                       |
+| `packages/domain/src/authorization` | Pure domain: RBAC matrix, object-scope/entitlement/maker-checker checks, `authorize()` (IDN-004)                                                                          |
+| `packages/domain/src/program`       | Pure domain: next-action resolver, primary-program selection, Program Hub tab visibility (PRG-001)                                                                        |
+| `packages/domain/src/shared`        | Canonical-JSON checksum shared by access/ and commerce/ (promoted in COM-001)                                                                                             |
+| `packages/db`                       | Drizzle schema dan migration (IDN-001: identity; ENT-001: access; COM-001: commerce; IDN-004: authorization; ENT-004: access-change; PRG-001: program)                    |
+| `packages/db/src/schema`            | Drizzle schema TypeScript — sumber kebenaran, bukan SQL                                                                                                                   |
+| `packages/db/drizzle/`              | Migration SQL ter-generate — **commit**, jangan diedit manual                                                                                                             |
+| `packages/ui`                       | Primitive design system student/admin — token + Program Card/Next Action Card/Empty State/Status Badge/Skeleton (PRG-001)                                                 |
+| `packages/observability`            | Structured logging, redaksi, correlation ID, manifest evidence                                                                                                            |
+| `packages/integrations`             | Adapter vendor di boundary; kosong sampai OD-01/OD-02/OD-03                                                                                                               |
+| `packages/testing`                  | Factory, clock injection, seeded randomness, provider fake                                                                                                                |
+| `.gitleaks.toml`                    | Konfigurasi Gitleaks repo-lokal (BD-08)                                                                                                                                   |
+| `.cache/gitleaks/`                  | Binary Gitleaks ter-cache lokal; gitignored, dibuat oleh `secrets:scan`                                                                                                   |
 
 Layout ini dikunci oleh **ADR-042** dan merekonsiliasi `CLAUDE.md`/BD-02 dengan `20_TECHNICAL_ARCHITECTURE.md` §5.
 

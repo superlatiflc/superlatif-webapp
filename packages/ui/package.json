@@ -5,13 +5,19 @@
   "type": "module",
   "description": "Shared student/admin design-system primitives and components.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/styles/tokens.css",
+    "./components.css": "./src/styles/components.css"
   },
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@superlatif/contracts": "workspace:*"
+    "@superlatif/contracts": "workspace:*",
+    "react": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18"
   }
 }
