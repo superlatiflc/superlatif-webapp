@@ -30,3 +30,26 @@ export {
   type CreateSkuMappingInput,
   type SkuMappingRow,
 } from "./sku-mapping-repository.ts";
+
+export {
+  createNormalizedCommerceEvent,
+  createQuarantineRecord,
+  createRawCommerceEvent,
+  findNormalizedCommerceEventByRawEventId,
+  findQuarantineRecordByRawEventId,
+  findRawCommerceEventByKey,
+  findRawCommerceEventById,
+  markRawCommerceEventStatus,
+  type CreateNormalizedCommerceEventInput,
+  type CreateQuarantineRecordInput,
+  type CreateRawCommerceEventInput,
+  type NormalizedCommerceEventRow,
+  type QuarantineRecordRow,
+  type RawCommerceEventRow,
+} from "./commerce-event-repository.ts";
+
+export {
+  ingestCommerceEvent,
+  type IngestCommerceEventInput,
+  type IngestCommerceEventOutcome,
+} from "./commerce-event-service.ts";

@@ -760,3 +760,59 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - ADR-028 progress formula;
 - review/support/download policies from Gate 2;
 - OD-03 final object storage/CDN provider decision, before any of this task's synthetic `storageRef` values are replaced with real ones.
+
+## ADR-055 — COM-002: raw/quarantine/normalized commerce-event schema, a synthetic HMAC verification layer, provider status mapping as versioned config, and a synchronous ingest pipeline pending real queue infrastructure
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** COM-002 (ingest immutable raw commerce events and normalize provider payloads).
+
+### Schema fills exactly the gap `commerce.ts` (COM-001) left open
+
+COM-001's module doc explicitly deferred `checkout_intents`/`purchases`/`purchase_events` as "COM-002/COM-003's explicit scope." This task builds the ingestion half of that gap: `raw_commerce_events` (the immutable envelope), `commerce_event_quarantine` (one row per event this task could not normalize), and `normalized_commerce_events` (dok 22 §17's canonical shape). Purchase/grant creation itself - "resolve identity and mapping; upsert purchase snapshot; create source grant tree" (dok 23 §11) - remains COM-003's scope; `normalized_commerce_events.externalSkuId` is deliberately left unresolved to an internal offer, exactly what COM-003 (`dependsOn: ["COM-002", "ENT-001"]`) is meant to consume next.
+
+`purchase_state` is a new Postgres enum, but transcribes CLAUDE.md's own canonical "Purchase states" vocabulary verbatim (`pending`/`paid`/`failed`/`expired`/`cancelled`/`refunded_partial`/`refunded_full`/`chargeback`) - this task is simply the first to actually persist it. `status`/`signatureOutcome`/`reasonCode` stay free text, matching `commerce.ts`'s own established local convention (`products.status`, `offers.visibility`, `externalSkuMappings.status` are all free text) rather than importing ENT-001/PRG-002's enum-preference from a different domain area into this one.
+
+### No live Sejoli/WordPress connection, no production secret - verification is a synthetic, injected-secret HMAC layer
+
+`@superlatif/domain/commerce/webhook-verification.ts` implements dok 23 §8's first preferred verification step (HMAC-SHA256 over the raw body, timing-safe compare) as a pure function. The signing secret is ALWAYS an injected parameter - `ingestCommerceEvent`'s caller supplies it, and every test in this task uses an obviously-synthetic string (`"synthetic-test-webhook-secret-do-not-use-in-production"`). No `.env.example`/env-spec entry was added for a webhook secret: wiring one in now, before OD-01/OD-02 are resolved, would imply a production configuration surface this task explicitly does not claim readiness for. `secret === null` ("unverified") is a legitimate, distinct outcome from "failed" - dok 23 §8 does not require every environment to have a key from day one, and this codebase has no live bridge that would ever supply one; a caller still treats `"unverified"` as quarantine-worthy, never as an implicit pass.
+
+### Provider status mapping is versioned config, not a switch statement - dok 23 §9 taken literally
+
+`ProviderStatusMap` (`@superlatif/domain/commerce/canonical-event.ts`) is a plain, versioned data structure (`{ provider, version, mapping: Record<string, PurchaseState> }`). `SEJOLI_BRIDGE_STATUS_MAP_V1` is dok 22 §17's own worked example, transcribed as synthetic test/reference data - never wired to a real Sejoli instance. Adding a provider, or a new raw status string for an existing provider, is a new config object/row, never a new `if`/`switch` branch. `normalizeCommerceEvent` never guesses: an event `type` outside `SUPPORTED_EVENT_TYPES`, or a raw status the provider's own map does not recognize, is reported as a distinct, named failure kind (`unsupported_type` / `unknown_status`) - the caller turns either into a quarantine record, never a best-effort normalized row with a fabricated status.
+
+### Quarantine is a structural audit trail, not a log line - "jangan silent drop" enforced by table design
+
+Every code path in `ingestCommerceEvent` that cannot produce a normalized event - a failed/unverified signature, an unsupported event type, an unrecognized provider status - writes a `commerce_event_quarantine` row before returning, inside the same transaction as the raw event insert. There is no path in this task's code that discards an event without a corresponding raw record and (when applicable) a quarantine record; the "invalid signature" and "unknown event" required tests both assert the raw envelope is still present and readable after quarantine, not merely that the outcome value says `"quarantined"`.
+
+### Defense-in-depth redaction, independent of what the sender claims it already did
+
+dok 23 §7 says the bridge should already send a minimized/redacted payload with no secret/payment credential. `@superlatif/domain/commerce/payload-redaction.ts#redactRawPayload` strips any object key whose NAME matches a credential-shaped pattern (`password`, `secret`, `token`, `card`, `cvv`, `account_number`, `api_key`, `authorization`, `private_key`) recursively, regardless of what the sender promises - CLAUDE.md "Parse/validate all external input at the boundary" and dok 24 §17's "Never log ... full webhook payload without controlled secure store" both apply at this ingestion boundary, not only at a later trust-assumed layer. `payloadChecksum` is computed over the ORIGINAL, pre-redaction canonical payload (`@superlatif/domain/shared#computeChecksum`) - a one-way SHA-256 digest cannot itself leak a secret, so this preserves an auditable link to exactly what was received without ever storing the unredacted bytes.
+
+### Idempotency: (provider, eventKey) uniqueness checked BEFORE the transaction opens, never a second raw row
+
+`deriveEventKey` (dok 22 §16 step 4) prefers a provider-supplied stable event ID and falls back to a canonical-JSON checksum of the payload itself when absent - two deliveries with byte-identical content and no ID collapse to the same fallback key, the same idempotency behavior a real stable ID would give for free. `ingestCommerceEvent` looks up an existing `(provider, eventKey)` row first and returns `{ kind: "duplicate", existingStatus }` untouched when found - no second raw row, no re-normalization, no re-quarantine. The required "duplicate/idempotency" test asserts exactly one row exists for a re-ingested key, not merely that the second call's return value differs from the first.
+
+### No raw payload mutation, proven against the actual mutation surface, not just a re-read
+
+`commerce-event-repository.ts` exposes exactly one function that can update an existing `raw_commerce_events` row - `markRawCommerceEventStatus`, whose `UPDATE` statement names only the `status` column. The required test calls this function DIRECTLY (not through `ingestCommerceEvent`) and asserts `rawPayloadRedacted`/`payloadChecksum`/`correlationId`/`receivedAt` are unchanged afterward - proving the payload/checksum columns are unreachable by the one exposed mutator, not merely that two reads of an already-settled row happen to match.
+
+### Synchronous ingest pipeline - a documented scope simplification, not a production-shape claim
+
+dok 22 §16 and dok 23 §9's sequence diagram describe ingress persisting durably and acknowledging fast, with a WORKER normalizing afterward. No queue/worker-dispatch infrastructure exists yet anywhere in this repository (no GOV-series task built one). `ingestCommerceEvent` therefore runs persist → verify → normalize/quarantine synchronously, inside one transaction, entirely in-process - `commerce-event-service.ts`'s own module doc records this explicitly as a scope simplification a future queue-backed task can call the same function from without changing its contract, not a claim that production ingestion is this synchronous.
+
+### A workspace-boundary checker false positive found and fixed along the way
+
+`scripts/check-workspace-boundaries.mjs`'s import scanner is a plain regex over file text (`/\bfrom\s+["']([^"']+)["']/g`), not a real parser - it does not distinguish a doc comment from an actual `import` statement. An early draft of `webhook-verification.ts`'s module doc contained the literal text `from "failed"` inside a comment explaining the `"unverified"` outcome, which the checker misread as `packages/domain` importing an external module named `"failed"`. Fixed by rewording the comment (no code change) once `pnpm run verify`'s contract-test suite caught it - `test/contract/workspace-boundaries.contract.test.ts` already has a similar documented regression case for `*.test.ts` files; this is the same class of naive-regex false positive in a new shape (a comment, not a test file), not a real boundary violation.
+
+### Consequences
+
+No `POST /api/v1/integrations/commerce/{provider}/events` route exists in `apps/web` - `ingestCommerceEvent` is service/API-layer ready, exercised only by this task's own integration tests against fabricated-but-realistic fixture payloads, the same "service ready, UI/route deferred" shape ADR-053/ADR-054/ENT-004 already used. No live Sejoli/WordPress connection, no production webhook secret, and no claim of production readiness anywhere in this change - OD-01 (real Sejoli event/signature/retry/refund semantics) remains exactly as open as it was before this task. Gate A and Gate D are not claimed PASS.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- OD-01 signed Sejoli event sample, before any of this task's synthetic verification/status-mapping logic is treated as production-ready;
+- OD-02 WordPress bridge/account-linking, relevant to the identity resolution COM-003 will need next;
+- review/support/download policies from Gate 2.
