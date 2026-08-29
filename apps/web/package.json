@@ -14,7 +14,10 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "@superlatif/contracts": "workspace:*",
-    "@superlatif/observability": "workspace:*"
+    "@superlatif/observability": "workspace:*",
+    "@superlatif/domain": "workspace:*",
+    "@superlatif/db": "workspace:*",
+    "@superlatif/ui": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "19.2.18",

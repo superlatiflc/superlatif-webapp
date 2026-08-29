@@ -2,9 +2,17 @@
 //
 // Shared student/admin design-system primitives and components.
 //
-// Owning backlog task: P2 (PRG/LRN).
-// GOV-001 only establishes the package boundary; behaviour is added by the
-// owning task. Do not add domain semantics, provider behaviour, or schema here
-// without the backlog entry that owns it.
+// PRG-001 is the first task to populate this package (previously an empty
+// boundary placeholder from GOV-001) - tokens transcribed from
+// docs/gates/11_DESIGN_SYSTEM.md §3-9, and the student-domain components
+// dok 11 §13.1/§13.2 name (Program Card, Next Action Card) plus the global
+// state primitives dok 09 §6 requires everywhere (Empty state, Skeleton,
+// Status badge). Exam, admin, and the remaining student-domain components
+// (Journey Roadmap, Schedule Item, Batch Card, ...) are added by whichever
+// task first needs them - not built ahead of a real consumer.
 
-export {};
+export { EmptyState, type EmptyStateProps } from "./components/EmptyState.tsx";
+export { NextActionCard, type NextActionCardProps } from "./components/NextActionCard.tsx";
+export { ProgramCard, type ProgramCardProps } from "./components/ProgramCard.tsx";
+export { Skeleton, type SkeletonProps } from "./components/Skeleton.tsx";
+export { StatusBadge, type StatusBadgeProps, type StatusBadgeVariant } from "./components/StatusBadge.tsx";

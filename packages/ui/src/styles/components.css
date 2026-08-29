@@ -1,0 +1,311 @@
+/*
+ * Superlatif Calm Momentum component styles (PRG-001).
+ *
+ * Mobile-first: base rules target the 0-479px "Mobile sempit" range
+ * (docs/gates/09_UX_SPECIFICATION.md §3.4); `min-width` media queries widen
+ * the layout for 768px+ (tablet) and 1200px+ (desktop), never the other
+ * way around, so a 320 CSS px viewport always gets a fully usable layout
+ * with no horizontal scroll (dok 09 §17 checklist item).
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+/* Long unbroken tokens (URLs, IDs, stack traces) must never force horizontal
+   scroll at 320 CSS px (dok 09 §17 checklist). */
+pre,
+code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.slf-app-shell {
+  min-height: 100dvh;
+  background: var(--slf-surface-canvas);
+  color: var(--slf-neutral-950);
+  font-family: var(--slf-font-sans);
+}
+
+.slf-page {
+  max-width: var(--slf-layout-content-max);
+  margin-inline: auto;
+  padding: var(--slf-layout-gutter-mobile);
+  padding-bottom: calc(var(--slf-layout-gutter-mobile) + var(--slf-touch-target-min) + var(--slf-space-6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-8);
+}
+
+@media (min-width: 768px) {
+  .slf-page {
+    padding: var(--slf-layout-gutter-tablet);
+    padding-bottom: var(--slf-layout-gutter-tablet);
+  }
+}
+
+@media (min-width: 1200px) {
+  .slf-page {
+    padding: var(--slf-layout-gutter-desktop);
+    padding-bottom: var(--slf-layout-gutter-desktop);
+  }
+}
+
+/* Focus visibility (dok 09 §12.1, dok 11 §18): 2px ring, never removed, never obscured by sticky elements. */
+:focus-visible {
+  outline: 2px solid var(--slf-focus-ring);
+  outline-offset: 2px;
+}
+
+.slf-greeting {
+  font-size: var(--slf-type-body-sm-size);
+  line-height: var(--slf-type-body-sm-line);
+  color: var(--slf-neutral-600);
+}
+
+.slf-section-title {
+  font-size: var(--slf-type-heading-md-size);
+  line-height: var(--slf-type-heading-md-line);
+  font-weight: var(--slf-type-heading-md-weight);
+  margin: 0 0 var(--slf-space-3);
+}
+
+/* --- Program Card (dok 11 §13.1) --- */
+
+.slf-program-card {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-md);
+  box-shadow: var(--slf-elevation-1);
+  padding: var(--slf-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-3);
+}
+
+@media (min-width: 768px) {
+  .slf-program-card {
+    padding: var(--slf-space-6);
+  }
+}
+
+.slf-program-card--primary {
+  border-color: var(--slf-brand-200);
+  background: var(--slf-surface-brand);
+}
+
+.slf-program-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-1);
+}
+
+.slf-program-card__name {
+  font-size: var(--slf-type-heading-sm-size);
+  line-height: var(--slf-type-heading-sm-line);
+  font-weight: var(--slf-type-heading-sm-weight);
+  margin: 0;
+}
+
+.slf-program-card__meta {
+  font-size: var(--slf-type-body-sm-size);
+  line-height: var(--slf-type-body-sm-line);
+  color: var(--slf-neutral-600);
+  margin: 0;
+}
+
+/* --- Status badge (dok 09 UX invariant #3: never color-only) --- */
+
+.slf-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--slf-space-1);
+  padding: var(--slf-space-1) var(--slf-space-3);
+  border-radius: var(--slf-radius-full);
+  font-size: var(--slf-type-label-sm-size);
+  line-height: var(--slf-type-label-sm-line);
+  font-weight: var(--slf-type-label-sm-weight);
+  border: 1px solid transparent;
+  width: fit-content;
+}
+
+.slf-status-badge__icon {
+  font-size: 1em;
+  line-height: 1;
+}
+
+.slf-status-badge--success {
+  color: var(--slf-success-strong);
+  background: var(--slf-success-surface);
+  border-color: var(--slf-success-border);
+}
+
+.slf-status-badge--info {
+  color: var(--slf-info-strong);
+  background: var(--slf-info-surface);
+  border-color: var(--slf-info-border);
+}
+
+.slf-status-badge--warning {
+  color: var(--slf-warning-strong);
+  background: var(--slf-warning-surface);
+  border-color: var(--slf-warning-border);
+}
+
+.slf-status-badge--danger {
+  color: var(--slf-danger-strong);
+  background: var(--slf-danger-surface);
+  border-color: var(--slf-danger-border);
+}
+
+/* --- Buttons (dok 09 §4 hierarchy) --- */
+
+.slf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--slf-space-2);
+  min-height: var(--slf-touch-target-min);
+  min-width: var(--slf-touch-target-min);
+  padding: var(--slf-space-2) var(--slf-space-5);
+  border-radius: var(--slf-radius-sm);
+  font-family: var(--slf-font-sans);
+  font-size: var(--slf-type-label-md-size);
+  line-height: var(--slf-type-label-md-line);
+  font-weight: var(--slf-type-label-md-weight);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color var(--slf-duration-fast) var(--slf-easing-standard),
+    border-color var(--slf-duration-fast) var(--slf-easing-standard);
+  text-decoration: none;
+}
+
+.slf-button--primary {
+  background: var(--slf-brand-900);
+  color: var(--slf-white);
+}
+
+.slf-button--primary:hover {
+  background: var(--slf-brand-700);
+}
+
+.slf-button--secondary {
+  background: transparent;
+  color: var(--slf-brand-900);
+  border-color: var(--slf-border-strong);
+}
+
+.slf-button--secondary:hover {
+  background: var(--slf-surface-subtle);
+}
+
+.slf-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --- Next Action Card (dok 11 §13.2) --- */
+
+.slf-next-action-card {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-2);
+}
+
+.slf-next-action-card__title {
+  font-size: var(--slf-type-heading-sm-size);
+  line-height: var(--slf-type-heading-sm-line);
+  font-weight: var(--slf-type-heading-sm-weight);
+  margin: 0;
+}
+
+.slf-next-action-card__reason {
+  font-size: var(--slf-type-body-sm-size);
+  line-height: var(--slf-type-body-sm-line);
+  color: var(--slf-neutral-600);
+  margin: 0;
+}
+
+/* --- Empty state (dok 09 §6.2: what's missing, why, what to do) --- */
+
+.slf-empty-state {
+  background: var(--slf-surface-default);
+  border: 1px dashed var(--slf-border-strong);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-8) var(--slf-space-5);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--slf-space-3);
+}
+
+.slf-empty-state__title {
+  font-size: var(--slf-type-heading-md-size);
+  line-height: var(--slf-type-heading-md-line);
+  font-weight: var(--slf-type-heading-md-weight);
+  margin: 0;
+}
+
+.slf-empty-state__body {
+  font-size: var(--slf-type-body-md-size);
+  line-height: var(--slf-type-body-md-line);
+  color: var(--slf-neutral-600);
+  margin: 0;
+  max-width: var(--slf-layout-reading-max);
+}
+
+/* --- Skeleton loading (dok 09 §6.1: skeleton, not a single spinner) --- */
+
+.slf-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--slf-neutral-75) 25%,
+    var(--slf-neutral-150) 37%,
+    var(--slf-neutral-75) 63%
+  );
+  background-size: 400% 100%;
+  border-radius: var(--slf-radius-md);
+  animation: slf-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slf-skeleton {
+    animation: none;
+    background: var(--slf-neutral-75);
+  }
+}
+
+@keyframes slf-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* --- Program grid (multi-program section, dok 07 §4 item 5) --- */
+
+.slf-program-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--slf-space-4);
+}
+
+@media (min-width: 768px) {
+  .slf-program-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .slf-program-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

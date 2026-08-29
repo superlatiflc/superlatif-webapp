@@ -50,9 +50,18 @@ importers:
       '@superlatif/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@superlatif/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@superlatif/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@superlatif/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@superlatif/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       next:
         specifier: 16.3.3
         version: 16.3.3(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -163,6 +172,13 @@ importers:
       '@superlatif/contracts':
         specifier: workspace:*
         version: link:../contracts
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
 
 packages:
 
