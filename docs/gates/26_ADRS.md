@@ -894,3 +894,53 @@ A required test sends two DIFFERENT deliveries (distinct `eventId`s, simulating 
 No schema changed, no migration was generated, no production code path was added or modified - this task's write-set is exactly one new test file plus this ADR. `db:check` has nothing new to report. Gate A and Gate D are not claimed PASS; OD-01/OD-02 remain exactly as open as ADR-055/ADR-056 already recorded.
 
 Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations: same as ADR-056 (no new ground covered by this task).
+
+## ADR-058 — COM-006: four nullable columns on `reconciliation_cases` (not a new table), repair reuses `applyPurchaseStatusEffects` exported from COM-003, and authorization reuses IDN-004's already-granted `reconciliation.manage` permission unchanged
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** COM-006 (build commerce reconciliation and exception operations).
+
+### Read-set honored: dok 25 §13 and dok 30 §10.1 drove the design, not invention
+
+Per the task instruction, `25_MIGRATION_AND_RECONCILIATION_PLAN.md` and `30_LAUNCH_AND_OPERATIONS_RUNBOOK.md` were read before any code. Two passages shaped this task directly:
+
+- dok 25 §13 "Reconciliation queue": `State: open, assigned, investigating, resolved, ignored-with-reason.` - transcribed verbatim into `ReconciliationCaseStatus`, still free text (matching `reconciliation_cases`' own existing convention), not a new Postgres enum.
+- dok 30 §10.1 "Paid order but no access": `"Create/assign case; replay known event only through idempotent command"` and `"fix mapping/adapter, replay affected event range by provider key, rebuild access."` This is the literal shape of `repairReconciliationCase` - not a re-ingestion of the original webhook (COM-002/COM-003's own idempotency layers permanently consume a `normalizedEventId` the first time it's processed, by design), but a distinct "the underlying blocker is now fixed - drive the SAME grant machinery through it once" operation.
+
+### No new table - four nullable columns on the table COM-003 already built
+
+`reconciliation_cases` gained `assignedToUserId`, `resolvedByUserId`, `resolvedAt`, `resolutionReason` - all nullable, all additive. Per the founder instruction ("jangan buat schema baru kecuali benar-benar perlu"), a new table was considered and rejected: a reconciliation case has at most one live resolution, so the columns going from null to set (who, when, why) already IS the audit fact; a separate append-only "repair log" table would record the same single event twice for no additional guarantee. `reconciliation-repository.ts`'s two new mutators - `assignReconciliationCase` and `resolveReconciliationCase` - are the ONLY functions that ever write these columns, and both refuse to touch an already-terminal case, so idempotency is enforced at the repository layer, not only trusted to the service layer above it.
+
+### Repair reuses `applyPurchaseStatusEffects` - exported, not reimplemented
+
+Per the founder instruction ("Repair yang menyentuh grants harus reuse ENT-001/ENT-002 functions, jangan bikin write path baru"), `purchase-lifecycle-service.ts`'s previously-private `applyPurchaseStatusEffects` was exported as-is (no logic change) and is now called from two places: the original webhook-driven `processPurchaseLifecycleEvent`, and this task's `repairReconciliationCase`. There is exactly one implementation of "what happens to grants when a purchase reaches `paid`/`refunded_full`/`chargeback`" in this codebase, before and after this task. `unknown_sku`/`unresolved_identity` repair re-resolves the original blocker (`resolveOfferForSku`/`findExternalIdentity`, unchanged from COM-001/IDN-001), patches the purchase row via `updatePurchaseStatus`, then calls the exported function; `chargeback_review` repair calls `recordGrantEventAndInvalidate` (ENT-001/ENT-002, unchanged) directly, exactly as COM-003's own chargeback path already did.
+
+### Authorization needed zero changes to `permissions.ts`
+
+IDN-004's permission matrix already carries `reconciliation.manage: { level: "granted" }` for `operations_admin`, `finance_reconciliation`, and `super_admin`, and `level: "scoped_nuance"` (a real permission cell, but NOT a full grant - `authorize()`'s `hasFullGrant` check treats it as absent) for `academic_admin` ("Read") and `support` ("Create case"). This task's authorization requirement - only staff who can fully manage reconciliation may REPAIR a case, not merely read or create one - was already exactly what the existing matrix encodes; `repairReconciliationCase`/`assignReconciliationCaseToOperator` call `authorize()` unchanged, with `action.permission: "reconciliation.manage"`, and the required "unauthorized operator" tests (a plain student, and separately an `academic_admin`) are denied by the matrix that already existed before this task started.
+
+### The reason-required guard is this task's own, mirroring ENT-001's pattern rather than reusing its class
+
+`recordGrantEvent`'s `GrantEventReasonRequiredError` (ENT-001) only fires for the specific grant-event types it gates (revoked/suspended/cancelled/reinstated) - it has no opinion about a reconciliation-case-level repair action that might resolve `unknown_sku` (no grant event at all, if the purchase somehow never reached `paid`) just as easily as `chargeback_review` (a grant event every time). `repairReconciliationCase` therefore has its own `ReconciliationRepairReasonRequiredError`, checked before authorization even runs - same shape and intent as ENT-001's guard, but a distinct class for a distinct action, not a forced reuse across an API boundary that doesn't naturally fit.
+
+### `ambiguous_transition` and `chargeback_review` require an explicit human decision - repair never guesses
+
+Both case types can resolve two structurally different ways (force the pending transition through vs. leave it rejected; confirm the chargeback vs. reinstate the grant), and nothing in the stored evidence can tell repair which one a human reviewer intends. `decision: "apply" | "reject"` is required for exactly these two case types (`ReconciliationRepairDecisionRequiredError` if omitted) - `unknown_sku`/`unresolved_identity` need no such parameter, because there is only one possible outcome once the blocker clears (issue the grant) or it doesn't (`still_blocked`).
+
+### No silent mutation - proven for both the blocked-repair and the reject-decision paths
+
+A "still_blocked" outcome (SKU still unmapped, identity still unresolved) leaves the case status, the purchase row, and the grant table completely untouched - proven directly by re-reading all three after a blocked repair attempt, not inferred from the code's shape. A "reject" decision on `ambiguous_transition`/`chargeback_review` resolves the case (`ignored_with_reason`) but performs zero purchase/grant mutation - the chargeback-reject test specifically asserts neither a `"revoked"` nor a `"reinstated"` grant event exists afterward, closing the one case where "did nothing happen" and "did the wrong thing happen" could otherwise look identical from the outside.
+
+### Consequences
+
+No live Sejoli/WordPress connection, no production sign-off claim anywhere in this change - the founder instruction's own stop condition (finance-approved reconciliation evidence unavailable) is honored by never claiming it. Gate A and Gate D are not claimed PASS. `assignReconciliationCaseToOperator` exists but has no `apps/web` route calling it - service/API-layer ready only, same "service ready, UI deferred" shape every commerce task in this series has used. A read-only reconciliation summary/report function (counts by case type/status, matching dok 25 §12's "Counts" section) was considered and deliberately deferred - the required tests did not need it, and adding one would have widened this task's scope beyond what "repair" itself requires; a future task can add it without touching anything built here.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- OD-01 signed Sejoli event sample, before any of this task's repair logic is treated as production-ready;
+- OD-02 WordPress bridge/account-linking;
+- finance-approved order/refund reconciliation evidence, before any repair outcome is treated as a production sign-off record (the task's own stop condition, not yet satisfied and not claimed here);
+- review/support/download policies from Gate 2.

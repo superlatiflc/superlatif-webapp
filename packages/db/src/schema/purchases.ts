@@ -130,6 +130,18 @@ export const purchaseEvents = pgTable(
  * (status values, component codes, reason strings) - never a raw provider
  * payload (that already lives, redacted, on COM-002's
  * commerce_event_quarantine/raw_commerce_events).
+ *
+ * `status`: "open" | "assigned" | "investigating" | "resolved" |
+ * "ignored_with_reason" (dok 25 §13's own queue-state vocabulary,
+ * transcribed verbatim) - still free text, matching this table's own
+ * existing convention, not a new enum. `assignedToUserId`/
+ * `resolvedByUserId`/`resolvedAt`/`resolutionReason` (COM-006) are the
+ * "owner and resolution state" acceptance criterion - four nullable
+ * columns added to this EXISTING table rather than a new one, since
+ * nothing about them needs a separate audit-trail table: a case has at
+ * most one live resolution, and the columns going from null to set IS
+ * the audit fact (who, when, why) - packages/db/src/commerce/
+ * reconciliation-repair-service.ts is the only code that ever sets them.
  */
 export const reconciliationCases = pgTable(
   "reconciliation_cases",
@@ -144,6 +156,10 @@ export const reconciliationCases = pgTable(
     ),
     evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
     status: text("status").notNull().default("open"),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionReason: text("resolution_reason"),
     createdAt: createdAt(),
   },
   (table) => [

@@ -73,10 +73,16 @@ export {
 } from "./purchase-repository.ts";
 
 export {
+  TERMINAL_RECONCILIATION_STATUSES,
+  assignReconciliationCase,
   createReconciliationCase,
+  findReconciliationCaseById,
+  isTerminalReconciliationStatus,
   listReconciliationCasesForPurchase,
+  resolveReconciliationCase,
   type CreateReconciliationCaseInput,
   type ReconciliationCaseRow,
+  type ReconciliationCaseStatus,
   type ReconciliationCaseType,
 } from "./reconciliation-repository.ts";
 
@@ -91,6 +97,19 @@ export {
 } from "./commerce-outbox-repository.ts";
 
 export {
+  applyPurchaseStatusEffects,
   processPurchaseLifecycleEvent,
   type PurchaseLifecycleOutcome,
+  type StatusEffects,
 } from "./purchase-lifecycle-service.ts";
+
+export {
+  ReconciliationCaseNotFoundError,
+  ReconciliationRepairDecisionRequiredError,
+  ReconciliationRepairNotAuthorizedError,
+  ReconciliationRepairReasonRequiredError,
+  assignReconciliationCaseToOperator,
+  repairReconciliationCase,
+  type RepairOutcome,
+  type RepairReconciliationCaseInput,
+} from "./reconciliation-repair-service.ts";
