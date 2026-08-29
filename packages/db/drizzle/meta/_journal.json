@@ -43,6 +43,13 @@
       "when": 1787975253034,
       "tag": "0005_talented_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787983854976,
+      "tag": "0006_outgoing_nighthawk",
+      "breakpoints": true
     }
   ]
 }

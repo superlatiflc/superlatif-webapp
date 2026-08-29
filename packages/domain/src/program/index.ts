@@ -18,3 +18,15 @@ export {
   type ProgramFacilities,
   type ProgramHubTab,
 } from "./program-hub-facilities.ts";
+
+export {
+  findCircularPrerequisite,
+  resolveModuleVisibility,
+  resolveReleaseState,
+  type ContentVisibility,
+  type ModuleLifecycleStatus,
+  type PrerequisiteEdge,
+  type ReleaseContext,
+  type ReleaseRule,
+  type ReleaseState,
+} from "./release-rule.ts";

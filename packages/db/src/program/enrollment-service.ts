@@ -7,7 +7,7 @@
 // presentation-layer PROJECTION synced FROM the resolver's output, never a
 // second source of truth for access.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { authorize, type AuthorizationDecision } from "@superlatif/domain/authorization";
 import type { EffectiveAccessCache } from "@superlatif/domain/access";
@@ -16,6 +16,7 @@ import { programEnrollments } from "../schema/index.ts";
 import { listActiveRoleHoldings } from "../authorization/index.ts";
 import { getEffectiveAccess } from "../access/index.ts";
 import { listPrograms, programTargetRef, type ProgramRow } from "./program-repository.ts";
+import { findCurrentPublishedProgramVersion } from "./curriculum-repository.ts";
 
 /**
  * Every program in the catalogue the user currently has effective access to
@@ -82,6 +83,7 @@ export interface EnrollmentRow {
   readonly userId: string;
   readonly programId: string;
   readonly isPrimary: boolean;
+  readonly pinnedProgramVersionId: string | null;
   readonly enrolledAt: Date;
   readonly lastActivityAt: Date | null;
 }
@@ -91,6 +93,7 @@ const ENROLLMENT_COLUMNS = {
   userId: programEnrollments.userId,
   programId: programEnrollments.programId,
   isPrimary: programEnrollments.isPrimary,
+  pinnedProgramVersionId: programEnrollments.pinnedProgramVersionId,
   enrolledAt: programEnrollments.enrolledAt,
   lastActivityAt: programEnrollments.lastActivityAt,
 };
@@ -102,6 +105,23 @@ const ENROLLMENT_COLUMNS = {
  * state). Returns every CURRENT enrollment for accessible programs -
  * enrollments for programs the user no longer has access to are left in
  * place (history), never deleted, but excluded from this result.
+ *
+ * PRG-002: also pins `pinnedProgramVersionId` to the program's current
+ * published version - but ONLY while that column is still null. dok 14 §7
+ * ("enrollment aktif tidak dipindah diam-diam") means a pin, once set, is
+ * never touched again by this function: a brand-new enrollment (or one
+ * created before any version had published yet) adopts the first published
+ * version it observes, exactly once; an already-pinned enrollment keeps
+ * seeing that same version forever, even after a newer one publishes -
+ * that immutability is what "existing learners retain pinned behavior"
+ * (founder instruction) actually means in code.
+ *
+ * `enrolledAt` is stamped explicitly from the injected `now`, not left to
+ * the column's `defaultNow()` - PRG-002's drip release rule
+ * (`relative_to_enrollment`) measures FROM this exact value, so it must
+ * come from the same injected clock every other domain resolver in this
+ * codebase uses (CLAUDE.md "Inject clock"), not the database's real
+ * wall-clock time.
  */
 export async function syncProgramEnrollments(
   db: Queryable<Schema>,
@@ -112,10 +132,31 @@ export async function syncProgramEnrollments(
   const accessiblePrograms = await listAccessibleProgramsForUser(db, cache, userId, now);
 
   for (const program of accessiblePrograms) {
+    const currentVersion = await findCurrentPublishedProgramVersion(db, program.id);
     await db
       .insert(programEnrollments)
-      .values({ userId, programId: program.id })
+      .values({
+        userId,
+        programId: program.id,
+        pinnedProgramVersionId: currentVersion?.id ?? null,
+        enrolledAt: now,
+      })
       .onConflictDoNothing({ target: [programEnrollments.userId, programEnrollments.programId] });
+
+    if (currentVersion) {
+      // Only adopts the version when no pin exists yet - never overwrites
+      // an existing pin, which is the entire point (see the doc above).
+      await db
+        .update(programEnrollments)
+        .set({ pinnedProgramVersionId: currentVersion.id })
+        .where(
+          and(
+            eq(programEnrollments.userId, userId),
+            eq(programEnrollments.programId, program.id),
+            isNull(programEnrollments.pinnedProgramVersionId),
+          ),
+        );
+    }
   }
 
   if (accessiblePrograms.length === 0) return [];
