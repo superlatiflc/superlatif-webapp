@@ -210,3 +210,16 @@ export async function findNormalizedCommerceEventByRawEventId(
     .limit(1);
   return row ?? null;
 }
+
+/** Looked up by primary key (COM-003) - purchase-lifecycle-service.ts processes one normalized event at a time by its own id. */
+export async function findNormalizedCommerceEventById(
+  db: Queryable<Schema>,
+  id: string,
+): Promise<NormalizedCommerceEventRow | null> {
+  const [row] = await db
+    .select(NORMALIZED_EVENT_COLUMNS)
+    .from(normalizedCommerceEvents)
+    .where(eq(normalizedCommerceEvents.id, id))
+    .limit(1);
+  return row ?? null;
+}

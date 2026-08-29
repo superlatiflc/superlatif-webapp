@@ -37,3 +37,10 @@ export {
   type ProviderStatusMap,
   type PurchaseState,
 } from "./canonical-event.ts";
+
+export {
+  ALLOWED_TRANSITIONS,
+  resolvePurchaseTransition,
+  type PurchaseTransitionContext,
+  type PurchaseTransitionOutcome,
+} from "./purchase-transition.ts";

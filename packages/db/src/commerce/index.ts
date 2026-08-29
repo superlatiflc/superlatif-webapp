@@ -18,6 +18,7 @@ export {
   OfferChecksumMismatchError,
   createOfferDraft,
   findOfferByCodeVersion,
+  findOfferById,
   publishOffer,
   type CreateOfferDraftInput,
   type OfferRow,
@@ -36,6 +37,7 @@ export {
   createQuarantineRecord,
   createRawCommerceEvent,
   findNormalizedCommerceEventByRawEventId,
+  findNormalizedCommerceEventById,
   findQuarantineRecordByRawEventId,
   findRawCommerceEventByKey,
   findRawCommerceEventById,
@@ -53,3 +55,42 @@ export {
   type IngestCommerceEventInput,
   type IngestCommerceEventOutcome,
 } from "./commerce-event-service.ts";
+
+export {
+  createPurchase,
+  createPurchaseEvent,
+  findPurchaseByExternalOrder,
+  findPurchaseById,
+  findPurchaseEventByNormalizedEventId,
+  listPurchaseEvents,
+  updatePurchaseStatus,
+  type CreatePurchaseEventInput,
+  type CreatePurchaseInput,
+  type PurchaseEventRow,
+  type PurchaseRow,
+  type PurchaseTransitionOutcomeLabel,
+  type UpdatePurchaseStatusInput,
+} from "./purchase-repository.ts";
+
+export {
+  createReconciliationCase,
+  listReconciliationCasesForPurchase,
+  type CreateReconciliationCaseInput,
+  type ReconciliationCaseRow,
+  type ReconciliationCaseType,
+} from "./reconciliation-repository.ts";
+
+export {
+  createOutboxEntry,
+  drainCommerceOutbox,
+  listPendingOutboxEntries,
+  type CommerceOutboxEventType,
+  type CommerceOutboxRow,
+  type CreateOutboxEntryInput,
+  type DrainOutboxResult,
+} from "./commerce-outbox-repository.ts";
+
+export {
+  processPurchaseLifecycleEvent,
+  type PurchaseLifecycleOutcome,
+} from "./purchase-lifecycle-service.ts";

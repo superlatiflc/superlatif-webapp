@@ -35,3 +35,4 @@ export {
   tracks,
 } from "./curriculum.ts";
 export { assetDeliveryReferences, assets, recordings } from "./assets.ts";
+export { commerceOutbox, purchaseEvents, purchases, reconciliationCases } from "./purchases.ts";

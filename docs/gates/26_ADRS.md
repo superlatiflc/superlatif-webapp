@@ -816,3 +816,43 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - OD-01 signed Sejoli event sample, before any of this task's synthetic verification/status-mapping logic is treated as production-ready;
 - OD-02 WordPress bridge/account-linking, relevant to the identity resolution COM-003 will need next;
 - review/support/download policies from Gate 2.
+
+## ADR-056 — COM-003: purchase/purchase_events/reconciliation_cases/commerce_outbox schema, a pure transition resolver, a two-layer idempotency model, and grant issuance/revocation reusing ENT-001 unchanged
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** COM-003 (process purchase lifecycle into access grants with outbox delivery).
+
+### Schema fills exactly the gap COM-002 left open, plus one addition of its own
+
+`purchases`, `purchase_events`, and `reconciliation_cases` are dok 21 §4's own tables, implemented here for the first time. `commerce_outbox` is NOT in dok 21 - a minimal, founder-instructed addition ("buat minimal outbox table + synchronous drain jika perlu, tapi jangan bangun queue infra penuh"), not a full message-queue schema. `purchases` is deliberately the ONE mutable projection in this task's write-set ("upsert purchase snapshot", dok 23 §11) - the same class of exception PRG-002's `program_enrollments.isPrimary` already used; the immutable fact log underneath it is `purchase_events` (append-only) plus `access_grants`/`grant_events` (ENT-001, entirely unchanged by this task).
+
+`reconciliation_cases` is deliberately a SEPARATE table from COM-002's `commerce_event_quarantine`, not a reuse of it: quarantine is about an event that could not be NORMALIZED (bad signature, unsupported shape - COM-002's concern); a reconciliation case is about a normalized event that COULD be normalized but could not be PROCESSED into a grant decision (unknown SKU, unresolved identity, an ambiguous/out-of-order transition, an unverifiable partial refund, an unresolvable policy validity config, or a chargeback flagged for review). Same audit-trail discipline, two distinct failure classes, matching dok 21 §4's own table separation.
+
+### Purchase transition legality is a pure, data-driven resolver - dok 22 §18 taken literally
+
+`@superlatif/domain/commerce/purchase-transition.ts#resolvePurchaseTransition` decides ONE thing, with no I/O: given a purchase's current status/time and one incoming event's status/time, is this event safe to apply? Two independent checks, in order - staleness (incoming `occurredAt` before the purchase's current state, rejected regardless of the target status) then legality (`ALLOWED_TRANSITIONS`, a plain data table, not a switch statement - the same "config, not code branches" discipline `canonical-event.ts`'s `ProviderStatusMap` already established). `paid -> pending` is deliberately absent from the table - dok 22 §18's own worked example of a transition that must never auto-apply, "even with a later timestamp" (a required test asserts exactly this). Terminal states (`expired`, `cancelled`, `refunded_full`, `chargeback`) have no outbound edges at all - reopening one is always `illegal_regression`, always a reconciliation case, never an automatic transition. `failed -> paid` stays open on purpose: a delayed retry can still succeed after an earlier attempt was marked failed.
+
+### Two independent idempotency layers, matching COM-002's "checked before the transaction opens" discipline
+
+Layer 1: `purchase_events.normalizedEventId` is unique - `processPurchaseLifecycleEvent` checks for an existing row before opening its transaction and returns `{ kind: "already_processed" }` untouched when found, mirroring exactly how `ingestCommerceEvent` (COM-002) checks `(provider, eventKey)` before its own transaction. Layer 2: `access_grants`' own `(userId, sourceType, sourceKey)` uniqueness (ENT-001, unmodified) - `sourceType = "purchase"`, `sourceId = purchase.id` (shared by every grant one purchase ever issues, so a refund/cancel can find and revoke exactly this purchase's grants without an extra join table), `sourceKey = "${purchase.id}:${componentCode}"` (one grant per product component, replay-safe by construction - re-deriving the same key on a replay makes `issueGrant` return the existing row, never a duplicate). A same-target-status re-delivery under a DIFFERENT `eventKey` (a provider retry with a new delivery id) is caught by layer 2's resolver as `"duplicate"`, not layer 1 - the required "provider retry" test exercises this distinction directly.
+
+### Grant issuance and revocation reuse ENT-001/ENT-002 completely unchanged
+
+`applyPurchaseStatusEffects` calls `issueGrantAndInvalidate`/`recordGrantEventAndInvalidate` (ENT-002's ENT-001 wrappers) exactly as ENT-004 already did - no new grant-mutation code path was added anywhere. `paid` issues one grant per `productComponents` row on the resolved offer's product version, using `@superlatif/domain/access#computeValidityWindow` for each component's own policy (a `through_program_or_batch_end` policy with no program/batch lifecycle table to supply `lifecycleEndsAt` degrades to a `policy_validity_unresolvable` reconciliation case for THAT component only, never aborting the whole purchase). `refunded_full`/`cancelled` record a `"revoked"` grant_event for every grant this purchase's `sourceId` owns - dok 23 §11 "revoke/cancel only grants from that purchase; preserve other grants" enforced by the same `sourceType`+`sourceId` ownership filter ENT-004's `GrantOwnershipMismatchError` already relies on elsewhere. `chargeback` records `"suspended"`, never `"revoked"` - dok 22 §18 "tidak otomatis menuduh siswa melakukan kecurangan" - and always pairs it with a `chargeback_review` reconciliation case for human review. `refunded_partial` takes NO automatic grant action at all: this task has no line-item granularity (one purchase maps to one offer), so it can never verify dok 22 §18's own precondition ("provider memberi nominal/line-item semantics yang dapat diverifikasi") - every `refunded_partial` event becomes an `unverifiable_partial_refund` reconciliation case instead of a guess.
+
+### Outbox atomicity, proven directly against the actual failure mode
+
+Every `commerce_outbox` row is written inside the SAME `db.transaction` as the grant/reconciliation-case write it accompanies. The required "outbox prevents partial commits" test does not rely on inference from the code's shape - it manually opens a transaction, issues a real grant, then deliberately writes an outbox row with a nonexistent `purchaseId` (violating the FK) to force a failure, and asserts the grant does not exist afterward. `drainCommerceOutbox` is a synchronous, injectable-consumer function (`publish: (entry) => Promise<void>`), not a queue worker - a `publish` failure leaves that one row `pending` for a later drain to retry, never blocking the rest of the batch; a future task with real dispatch infrastructure can call it from a job handler unchanged.
+
+### Consequences
+
+No `apps/web` route processes a normalized event automatically - `processPurchaseLifecycleEvent` is service/API-layer ready, exercised only by this task's own integration tests, which drive it through COM-002's real `ingestCommerceEvent` first (fabricated-but-realistic fixture payloads end to end, not a shortcut past COM-002). No checkout-intent resolution (no checkout flow exists yet) and no real notification delivery (the outbox records the obligation; nothing sends anything). No live Sejoli/WordPress connection, no production webhook secret, and no claim of production readiness anywhere in this change - OD-01 remains exactly as open as ADR-055 already recorded it. Gate A and Gate D are not claimed PASS.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- OD-01 signed Sejoli event sample, before any of this task's synthetic verification/status-mapping/transition logic is treated as production-ready;
+- OD-02 WordPress bridge/account-linking - `external_identities` is reused for identity resolution as-is (IDN-001), but no live bridge populates it yet;
+- review/support/download policies from Gate 2.
