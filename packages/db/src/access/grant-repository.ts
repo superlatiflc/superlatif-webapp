@@ -115,8 +115,21 @@ export async function findGrantById(db: Queryable<Schema>, grantId: string): Pro
   return row ?? null;
 }
 
+/**
+ * Ordered by (createdAt, id) - ENT-003's "deterministic rebuild" requirement
+ * needs this explicitly: without an ORDER BY, Postgres does not guarantee
+ * row order, and @superlatif/domain/access#resolveEffectiveAccess's
+ * `decisiveGrantIds` is derived directly from this array's order (it dedupes
+ * but never sorts) - an unordered fetch could report the same overlapping
+ * grants in a different sequence on every call, purely as a side effect of
+ * physical storage, never a real change in what a user is entitled to.
+ */
 export async function listGrantsForUser(db: Queryable<Schema>, userId: string): Promise<GrantRow[]> {
-  return db.select(GRANT_COLUMNS).from(accessGrants).where(eq(accessGrants.userId, userId));
+  return db
+    .select(GRANT_COLUMNS)
+    .from(accessGrants)
+    .where(eq(accessGrants.userId, userId))
+    .orderBy(asc(accessGrants.createdAt), asc(accessGrants.id));
 }
 
 export interface GrantEventRow {

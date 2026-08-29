@@ -63,6 +63,7 @@ export {
   findPurchaseById,
   findPurchaseEventByNormalizedEventId,
   listPurchaseEvents,
+  listPurchasesForUser,
   updatePurchaseStatus,
   type CreatePurchaseEventInput,
   type CreatePurchaseInput,

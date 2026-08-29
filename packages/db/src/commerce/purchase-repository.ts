@@ -5,7 +5,7 @@
 // is the one function that mutates an existing row); `purchase_events` rows
 // are append-only, never updated.
 
-import { eq, and } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { PurchaseState } from "@superlatif/domain/commerce";
 import type { Queryable, Schema } from "../db-types.ts";
 import { purchaseEvents, purchases } from "../schema/index.ts";
@@ -109,6 +109,15 @@ export async function findPurchaseByExternalOrder(
 export async function findPurchaseById(db: Queryable<Schema>, id: string): Promise<PurchaseRow | null> {
   const [row] = await db.select(PURCHASE_COLUMNS).from(purchases).where(eq(purchases.id, id)).limit(1);
   return row ?? null;
+}
+
+/** Ordered by (orderedAt, id) for the same determinism reason as access/grant-repository.ts#listGrantsForUser - ENT-003's rebuild/drift functions need a stable order to compare across repeated calls. */
+export async function listPurchasesForUser(db: Queryable<Schema>, userId: string): Promise<PurchaseRow[]> {
+  return db
+    .select(PURCHASE_COLUMNS)
+    .from(purchases)
+    .where(eq(purchases.userId, userId))
+    .orderBy(asc(purchases.orderedAt), asc(purchases.id));
 }
 
 export interface UpdatePurchaseStatusInput {

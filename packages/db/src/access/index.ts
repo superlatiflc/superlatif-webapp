@@ -47,3 +47,10 @@ export {
   type RequestManualGrantInput,
   type RequestManualRevocationInput,
 } from "./manual-change-service.ts";
+
+export {
+  detectEffectiveAccessDrift,
+  detectPurchaseGrantDrift,
+  rebuildEffectiveAccess,
+  type PaidPurchaseNoGrantDrift,
+} from "./entitlement-rebuild-service.ts";

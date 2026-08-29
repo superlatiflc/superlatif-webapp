@@ -944,3 +944,36 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - OD-02 WordPress bridge/account-linking;
 - finance-approved order/refund reconciliation evidence, before any repair outcome is treated as a production sign-off record (the task's own stop condition, not yet satisfied and not claimed here);
 - review/support/download policies from Gate 2.
+
+## ADR-059 — ENT-003: no new schema - rebuild reuses ENT-002's own resolver bypassing the cache, drift correction is invalidation-only, a latent grant-ordering non-determinism found and fixed, and purchase-vs-grant drift reuses COM-006's reconciliation table with one new case type
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** ENT-003 (create deterministic entitlement rebuild and drift detection).
+
+### No persisted `effective_access` snapshot table - "rebuild" already existed, just needed a name
+
+Per the task instruction, a new schema was considered and rejected. ENT-002's `getEffectiveAccess` already does exactly two things on a cache miss: fetch every grant from source records (`listResolvableGrantsForUser`) and recompute a decision (`resolveEffectiveAccess`) - both pure/unmodified. "Rebuild from source records" is that exact pair of calls, exposed under its own name (`rebuildEffectiveAccess`) so a caller can request it explicitly rather than incidentally on a cache miss. No new table was needed because there was never a SECOND thing to compare a fresh computation against other than the cache itself - and the cache already existed.
+
+### Two independent drift checks, because they are two different classes of problem with two different correct responses
+
+`detectEffectiveAccessDrift` (cache vs. rebuild) is **self-healing**: if a cached decision disagrees with a fresh rebuild, the only correct action is to stop trusting the stale entry - `cache.invalidateUser` (ENT-002's own existing method, already called by `issueGrantAndInvalidate`/`recordGrantEventAndInvalidate`) is the entire "repair." No reconciliation case is raised for this kind, because there is no decision for a human to make - the next real read will simply recompute correctly. `detectPurchaseGrantDrift` (paid purchase vs. supporting grant) is **not** self-healing: a paid purchase with zero grants at all could be a real bug, or a legitimately-documented exception (dok 05 §14 / dok 25 §12's own language: "unless exception documented") - this always raises a COM-006 `reconciliation_cases` row (a new case type, `paid_purchase_no_grant`, added to the existing free-text-backed union - zero schema impact) for a human to investigate, resolved through COM-006's own `resolveReconciliationCase` unchanged.
+
+### "Repair" never widens access - proven directionally, not just by absence of a widening code path
+
+`compareEffectiveAccessDecisions` (pure, `@superlatif/domain/access`) reports which DIRECTION a disagreement runs: `cache_over_permissive` (cache says allowed, rebuild says denied - the dangerous direction dok 05 §16 invariant 8 is about) versus `cache_under_permissive` (the safe direction - a real grant exists that the cache hadn't caught up to yet). Both are reported as drift, but the reaction is identical either way (invalidate) precisely because invalidation can only ever make the next read MORE accurate - it removes a cached answer, it never installs a wider one. The required "no access widening" test does not just assert that no widening function exists; it drives the actual sequence (populate cache while allowed, revoke the grant out-of-band, detect drift, invalidate, re-read) and asserts the re-read returns the more restrictive rebuilt decision, never the stale permissive one.
+
+### A latent non-determinism found and fixed: `listGrantsForUser` had no `ORDER BY`
+
+While designing the "deterministic output ordering" test, `access/grant-repository.ts#listGrantsForUser` was found to have no `ORDER BY` clause at all - `@superlatif/domain/access#resolveEffectiveAccess`'s `decisiveGrantIds` is derived directly from its caller's array order (deduped, never sorted), so an unordered fetch could report the same overlapping grants in a different sequence on different calls, purely as an artifact of physical row storage, never a real change in entitlement. Fixed by adding `.orderBy(asc(createdAt), asc(id))` - a minimal, purely additive change (no semantic change, only a determinism guarantee) that the required ordering test now exercises directly (three overlapping grants from three different sources, five repeated rebuilds, identical `decisiveGrantIds` order every time). `commerce/purchase-repository.ts#listPurchasesForUser` (new, needed for `detectPurchaseGrantDrift`) was written with the same explicit ordering from the start, for the same reason.
+
+### Consequences
+
+No live Sejoli/WordPress connection, no schema change, no migration generated - `db:check` has nothing new to report. Gate A and Gate D are not claimed PASS. `detectPurchaseGrantDrift`/`detectEffectiveAccessDrift` have no `apps/web` route calling them yet - service/API-layer ready only, matching every commerce/entitlement task in this series. `paid_purchase_no_grant` cases are never auto-repaired by issuing a grant - dok 05 §16 invariant 8 ("Unknown SKU atau ambiguous user mapping tidak memberi akses luas secara diam-diam") generalized to this task's own scope: a detected gap is always a human decision, reusing ENT-004's manual-grant workflow if a grant turns out to genuinely be owed, never an automatic one from this module.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- OD-01/OD-02, unaffected by this task;
+- review/support/download policies from Gate 2.
