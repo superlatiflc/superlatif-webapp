@@ -856,3 +856,41 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - OD-01 signed Sejoli event sample, before any of this task's synthetic verification/status-mapping/transition logic is treated as production-ready;
 - OD-02 WordPress bridge/account-linking - `external_identities` is reused for identity resolution as-is (IDN-001), but no live bridge populates it yet;
 - review/support/download policies from Gate 2.
+
+## ADR-057 — COM-004: no new schema, no new production code path - source-isolated revocation proven against the existing COM-003/ENT-001/ENT-002 mechanism, not a new one
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** COM-004 (handle refund, cancellation, expiry, and source-isolated revocation).
+
+### The founder instruction's own precondition held: no schema, no new mutation path
+
+Before writing any code, this task reviewed `applyPurchaseStatusEffects` (COM-003, `purchase-lifecycle-service.ts`) against COM-004's three acceptance criteria and found all three already true by construction:
+
+- **"A source can revoke only grants it created"** - refund/cancel already filters `listGrantsForUser(...).filter(g => g.sourceType === "purchase" && g.sourceId === purchase.id)` before calling `recordGrantEventAndInvalidate`. A grant from any other source (another purchase, a manual grant, anything else) is never even considered, let alone touched.
+- **"Overlapping valid access survives another source refund"** - a direct consequence of the same filter: two purchases granting the same target produce two grant rows with two different `sourceId`s; refunding one can only ever match its own.
+- **"Every removal has a reason and audit trail"** - `recordGrantEvent` (ENT-001) already throws `GrantEventReasonRequiredError` for a reason-less revoked/suspended/cancelled/reinstated event, and `applyPurchaseStatusEffects` already supplies a fixed, meaningful reason per path (`"purchase_refunded_full"`, `"purchase_cancelled"`, `"purchase_chargeback_review"`).
+
+Per the founder instruction ("Jangan buat schema baru kalau acceptance bisa dipenuhi dengan mekanisme COM-003 + ENT-001/ENT-002 yang sudah ada"), this task's entire write-set is ONE new integration test file - `source-isolated-revocation.integration.test.ts` - proving the above against the harder multi-source scenarios COM-004 names, rather than re-describing a mechanism that was never actually missing.
+
+### Overlapping-grant refund, proven at the student-facing layer, not just the row layer
+
+The core required test issues two independent grants for the identical target (`program:aks-2026`) from two different offers/purchases (a "bundle" and a "specialist" product, mirroring COM-001's own bundle/overlap precedent), refunds only the specialist purchase, and asserts three things together: the bundle grant's row is untouched (no `revoked` event, same id), the specialist grant DID get a `revoked` event with the correct reason, and - the real proof - `getEffectiveAccess` for the shared target still returns `allowed: true` with `decisiveGrantIds` now pointing at the surviving bundle grant alone. Checking only the grant table would have missed a class of bug where the resolver itself, not the revocation, breaks isolation.
+
+### Unknown-source revocation denial extended to a DIFFERENT source type, not just another purchase
+
+The backlog's own test name ("Unknown-source revocation denial") is interpreted as: isolation must hold not only between two purchases, but between a purchase and any OTHER source type entirely. A second required test issues a `sourceType: "manual"` grant (ENT-004's own convention, `sourceId = studentId`) for the same target, then refunds an unrelated purchase for the same student - the manual grant is asserted untouched (no `revoked` event, still the sole entry in `decisiveGrantIds`) exactly as if it belonged to a different student's data entirely.
+
+### Expiry boundary is a purchase-lifecycle state, not a grant-lifecycle one
+
+COM-004's "expiry" is `purchases.status = "expired"` (a `pending` order whose payment window closed - dok 22 §18's own vocabulary), not a grant's own `validTo` passing, which ENT-001/ENT-002 already handle automatically via `deriveGrantStatus` with zero commerce involvement. The required test drives `pending -> expired` and confirms zero grants were ever issued (nothing to revoke) and that a replay of the same normalized event is `already_processed`, matching COM-003's existing idempotency layer.
+
+### Idempotent repeated refund/cancel - proven against the grant_events audit trail directly, not inferred
+
+A required test sends two DIFFERENT deliveries (distinct `eventId`s, simulating a provider retry) that both resolve to `"refunded_full"`. `resolvePurchaseTransition`'s same-status check already classifies the second as `"duplicate"` before any grant code runs; the test proves the consequence directly by counting `grant_events` rows: exactly one `revoked` entry exists afterward, not two - the transition-layer guard is what prevents a double-revocation, and this is what the test actually exercises rather than assuming.
+
+### Consequences
+
+No schema changed, no migration was generated, no production code path was added or modified - this task's write-set is exactly one new test file plus this ADR. `db:check` has nothing new to report. Gate A and Gate D are not claimed PASS; OD-01/OD-02 remain exactly as open as ADR-055/ADR-056 already recorded.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations: same as ADR-056 (no new ground covered by this task).
