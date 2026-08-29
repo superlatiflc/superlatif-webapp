@@ -187,3 +187,9 @@ export async function findOfferByCodeVersion(
     .limit(1);
   return row ?? null;
 }
+
+/** Looked up by primary key (COM-003) - what `external_sku_mappings.offer_id`/`purchases.offer_id` actually store, not a code+version pair a purchase-processing caller may not have on hand. */
+export async function findOfferById(db: Queryable<Schema>, offerId: string): Promise<OfferRow | null> {
+  const [row] = await db.select(OFFER_COLUMNS).from(offers).where(eq(offers.id, offerId)).limit(1);
+  return row ?? null;
+}
