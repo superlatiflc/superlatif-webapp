@@ -50,3 +50,17 @@ export const targetType = pgEnum("target_type", [
   "community",
   "capability",
 ]);
+
+// dok 14 §14 "Recording": "Processing state: pending, processing, ready,
+// failed, archived" - transcribed verbatim (LRN-001). A genuinely new state
+// vocabulary, but not an invented one: the canonical UX/domain spec names it
+// exactly, the same way grantEventType/recordStatus above transcribe their
+// own source docs rather than inventing synonyms (CLAUDE.md "Do not
+// introduce synonyms without updating the domain document").
+export const recordingProcessingStatus = pgEnum("recording_processing_status", [
+  "pending",
+  "processing",
+  "ready",
+  "failed",
+  "archived",
+]);

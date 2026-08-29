@@ -83,6 +83,27 @@ export function resolveModuleVisibility(
   return resolveReleaseState(rule, context);
 }
 
+/**
+ * Combines a MODULE's resolved visibility with its own PLACEMENT's release
+ * rule (LRN-001) - dok 14 §3: "Placement menyimpan urutan, label lokal,
+ * required flag, release, dan completion rule," a release condition
+ * independent of, and additional to, the module's own (dok 14 §6: "Rules
+ * lebih kompleks memakai AND terbatas" - both must be satisfied). A
+ * placement can never be more visible than its parent module: an archived
+ * or unpublished module hides every placement inside it regardless of the
+ * placement's own rule.
+ */
+export function resolvePlacementVisibility(
+  moduleStatus: ModuleLifecycleStatus,
+  moduleRule: ReleaseRule,
+  placementRule: ReleaseRule,
+  context: ReleaseContext,
+): ContentVisibility {
+  const moduleVisibility = resolveModuleVisibility(moduleStatus, moduleRule, context);
+  if (moduleVisibility !== "released") return moduleVisibility;
+  return resolveReleaseState(placementRule, context);
+}
+
 export interface PrerequisiteEdge {
   readonly placementId: string;
   readonly prerequisitePlacementIds: readonly string[];

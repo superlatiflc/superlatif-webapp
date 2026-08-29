@@ -16,6 +16,7 @@ import type { Queryable, Schema } from "../db-types.ts";
 import {
   modules,
   programVersions,
+  programs,
   resourcePlacements,
   resourceVersions,
   resources,
@@ -559,4 +560,53 @@ export async function listModulesForProgramVersion(db: Queryable<Schema>, progra
     .innerJoin(roadmapStages, eq(modules.stageId, roadmapStages.id))
     .innerJoin(tracks, eq(roadmapStages.trackId, tracks.id))
     .where(eq(tracks.programVersionId, programVersionId));
+}
+
+export interface PlacementDeliveryContext {
+  readonly placementId: string;
+  readonly required: boolean;
+  readonly placementReleaseConfig: Record<string, unknown>;
+  readonly prerequisitePlacementIds: readonly string[];
+  readonly moduleStatus: string;
+  readonly moduleReleaseConfig: Record<string, unknown>;
+  readonly resourceVersionId: string;
+  readonly resourceVersionStatus: string;
+  readonly programCode: string;
+}
+
+/**
+ * Everything delivery-service.ts#requestAssetDelivery needs to authorize one
+ * placement's asset delivery - joins all the way up to the owning program's
+ * CODE (not just its ID) because assertProgramAccess/getEffectiveAccess key
+ * on `program:<code>` target refs (program-repository.ts#programTargetRef).
+ * Deliberately re-joins from scratch rather than reusing
+ * listModulesForProgramVersion - that function is scoped to one already-
+ * known program version and does not resolve back up to the program itself.
+ */
+export async function findPlacementDeliveryContext(
+  db: Queryable<Schema>,
+  placementId: string,
+): Promise<PlacementDeliveryContext | null> {
+  const [row] = await db
+    .select({
+      placementId: resourcePlacements.id,
+      required: resourcePlacements.required,
+      placementReleaseConfig: resourcePlacements.releaseConfig,
+      prerequisitePlacementIds: resourcePlacements.prerequisitePlacementIds,
+      moduleStatus: modules.status,
+      moduleReleaseConfig: modules.releaseConfig,
+      resourceVersionId: resourcePlacements.releasedResourceVersionId,
+      resourceVersionStatus: resourceVersions.status,
+      programCode: programs.code,
+    })
+    .from(resourcePlacements)
+    .innerJoin(modules, eq(resourcePlacements.moduleId, modules.id))
+    .innerJoin(roadmapStages, eq(modules.stageId, roadmapStages.id))
+    .innerJoin(tracks, eq(roadmapStages.trackId, tracks.id))
+    .innerJoin(programVersions, eq(tracks.programVersionId, programVersions.id))
+    .innerJoin(programs, eq(programVersions.programId, programs.id))
+    .innerJoin(resourceVersions, eq(resourcePlacements.releasedResourceVersionId, resourceVersions.id))
+    .where(eq(resourcePlacements.id, placementId))
+    .limit(1);
+  return row ?? null;
 }

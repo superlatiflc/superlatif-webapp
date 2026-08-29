@@ -22,6 +22,7 @@ export {
 export {
   findCircularPrerequisite,
   resolveModuleVisibility,
+  resolvePlacementVisibility,
   resolveReleaseState,
   type ContentVisibility,
   type ModuleLifecycleStatus,
@@ -30,3 +31,12 @@ export {
   type ReleaseRule,
   type ReleaseState,
 } from "./release-rule.ts";
+
+export {
+  computeDeliveryExpiry,
+  deliveryTokenMatchesHash,
+  evaluateDeliveryReferenceValidity,
+  generateDeliveryToken,
+  hashDeliveryToken,
+  type DeliveryReferenceValidity,
+} from "./secure-delivery.ts";

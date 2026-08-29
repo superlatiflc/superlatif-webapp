@@ -35,6 +35,7 @@ export {
   createRoadmapStage,
   createTrack,
   findCurrentPublishedProgramVersion,
+  findPlacementDeliveryContext,
   findProgramVersionById,
   findResourceByCode,
   listModulesForProgramVersion,
@@ -47,6 +48,7 @@ export {
   type CreateRoadmapStageInput,
   type CreateTrackInput,
   type ModuleRow,
+  type PlacementDeliveryContext,
   type ProgramVersionRow,
   type ResourcePlacementRow,
   type ResourceRow,
@@ -61,3 +63,29 @@ export {
   type CurriculumModuleView,
   type ProgramCurriculumView,
 } from "./curriculum-service.ts";
+
+export {
+  RecordingNotFoundError,
+  createAsset,
+  createDeliveryReference,
+  createRecording,
+  findAssetById,
+  findDeliveryReferenceByTokenHash,
+  findPrimaryAssetForResourceVersion,
+  findRecordingByResourceVersionId,
+  markRecordingFailed,
+  markRecordingReady,
+  type AssetRow,
+  type CreateAssetInput,
+  type CreateDeliveryReferenceInput,
+  type CreateRecordingInput,
+  type DeliveryReferenceRow,
+  type RecordingRow,
+} from "./asset-repository.ts";
+
+export {
+  requestAssetDelivery,
+  resolveAssetDelivery,
+  type AssetDeliveryRequestResult,
+  type AssetDeliveryResolution,
+} from "./delivery-service.ts";
