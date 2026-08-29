@@ -34,6 +34,12 @@ export async function findProgramByCode(db: Queryable<Schema>, code: string): Pr
   return row ?? null;
 }
 
+/** Looked up by primary key (SCH-001) - a schedule_items row stores programId, not a code, and assertProgramAccess needs the code. */
+export async function findProgramById(db: Queryable<Schema>, id: string): Promise<ProgramRow | null> {
+  const [row] = await db.select(PROGRAM_COLUMNS).from(programs).where(eq(programs.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function listPrograms(db: Queryable<Schema>): Promise<ProgramRow[]> {
   return db.select(PROGRAM_COLUMNS).from(programs);
 }

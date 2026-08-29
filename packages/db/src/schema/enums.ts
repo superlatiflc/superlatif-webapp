@@ -79,3 +79,24 @@ export const purchaseState = pgEnum("purchase_state", [
   "refunded_full",
   "chargeback",
 ]);
+
+// dok 14 §11 "Schedule item": "type: live_class, exam_window, deadline,
+// announcement, other" - transcribed verbatim (SCH-001).
+export const scheduleItemType = pgEnum("schedule_item_type", [
+  "live_class",
+  "exam_window",
+  "deadline",
+  "announcement",
+  "other",
+]);
+
+// dok 14 §11 "Status": "draft, scheduled, live, ended, cancelled,
+// rescheduled" - transcribed verbatim (SCH-001).
+export const liveSessionStatus = pgEnum("live_session_status", [
+  "draft",
+  "scheduled",
+  "live",
+  "ended",
+  "cancelled",
+  "rescheduled",
+]);

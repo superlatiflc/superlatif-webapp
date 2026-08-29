@@ -1,6 +1,7 @@
 export {
   createProgram,
   findProgramByCode,
+  findProgramById,
   listPrograms,
   programTargetRef,
   type CreateProgramInput,
@@ -89,3 +90,44 @@ export {
   type AssetDeliveryRequestResult,
   type AssetDeliveryResolution,
 } from "./delivery-service.ts";
+
+export {
+  createAttendanceCheckIn,
+  createJoinReference,
+  createLiveSession,
+  createReminder,
+  createScheduleItem,
+  findAttendanceRecord,
+  findJoinReferenceByTokenHash,
+  findLiveSessionById,
+  findScheduleItemById,
+  linkRecordingToLiveSession,
+  listRemindersForSession,
+  recordAttendanceCheckOut,
+  updateLiveSessionStatus,
+  type AttendanceRow,
+  type CreateLiveSessionInput,
+  type CreateScheduleItemInput,
+  type JoinReferenceRow,
+  type LiveSessionRow,
+  type ReminderRow,
+  type ScheduleItemRow,
+  type UpdateLiveSessionStatusInput,
+} from "./schedule-repository.ts";
+
+export {
+  LiveSessionNotFoundError,
+  ScheduleActionNotAuthorizedError,
+  ScheduleReasonRequiredError,
+  cancelLiveSession,
+  checkInToLiveSession,
+  checkOutOfLiveSession,
+  linkRecording,
+  rescheduleLiveSession,
+  requestLiveSessionJoin,
+  resolveLiveSessionJoin,
+  scheduleReminder,
+  type JoinRequestOutcome,
+  type JoinResolution,
+  type RescheduleResult,
+} from "./schedule-service.ts";

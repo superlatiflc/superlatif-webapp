@@ -977,3 +977,46 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - ADR-008/010 hosting stack;
 - OD-01/OD-02, unaffected by this task;
 - review/support/download policies from Gate 2.
+
+## ADR-060 — SCH-001: schedule_items/live_sessions/live_session_join_references/live_session_attendance/live_session_reminders schema, join-link security mirrors LRN-001's two-check model exactly, append-only reschedule, and recording reuses LRN-001's table unchanged
+
+**Status:** Accepted  
+**Date:** 30 August 2026  
+**Decided during:** SCH-001 (schedule, live class, reminder, recording, and attendance lifecycle).
+
+### Schema transcribes dok 14 §11 verbatim - two new closed enums, three new tables, plus join/attendance/reminder support tables
+
+`schedule_item_type` (`live_class`/`exam_window`/`deadline`/`announcement`/`other`) and `live_session_status` (`draft`/`scheduled`/`live`/`ended`/`cancelled`/`rescheduled`) are transcribed directly from dok 14 §11's own vocabulary, matching `grantEventType`/`recordingProcessingStatus`'s established enum precedent for closed, spec-defined vocabularies. `schedule_items` carries the program/track reference and explicit authoring timezone (SCH-001 acceptance); `live_sessions` carries everything specific to a live_class occurrence. `provider`/`externalMeetingRef` are opaque strings end to end - never dereferenced against a real Zoom/Meet provider anywhere in this task, the same discipline `assets.storageRef` (LRN-001) already established for object storage.
+
+### Join-link security is LRN-001's two-check delivery model, reused at the primitive level, not duplicated at the table level
+
+dok 14 §12's join flow ("access mengikuti grant saat playback, bukan hanya saat link dibuat" - the same phrase dok 14 §14 uses for asset delivery) is structurally identical to LRN-001's asset-delivery problem: issue a short-lived opaque token at REQUEST time, re-authorize FRESH at REDEEM time. `requestLiveSessionJoin`/`resolveLiveSessionJoin` (`schedule-service.ts`) mirror `requestAssetDelivery`/`resolveAssetDelivery` exactly, and reuse `@superlatif/domain/program`'s crypto primitives (`generateDeliveryToken`/`hashDeliveryToken`/`deliveryTokenMatchesHash`/`computeDeliveryExpiry`/`evaluateDeliveryReferenceValidity`) completely unchanged - zero new cryptography. `live_session_join_references` is a NEW table, not a reuse of `asset_delivery_references`, because the FK target genuinely differs (a live session, not an asset+placement); reusing that table would have meant either a nullable dual-FK shape or overloading `placementId` to mean something it doesn't - the founder instruction's "jangan bikin write path baru" is honored at the level that actually matters (no second implementation of the security-sensitive token logic), not by force-fitting an unrelated table's foreign keys.
+
+dok 14 §12's own ordering - "1. buka session, 2. evaluasi effective access, 3. evaluasi join window dan session status" - is followed literally: `assertProgramAccess` (ENT-002/IDN-004, unchanged) runs BEFORE the status/window checks, so an unauthorized caller never learns anything about a session's timing from the response shape.
+
+### Recording reuses LRN-001's table unchanged - `live_sessions.recordingId` only ever attaches, never creates
+
+Per the founder instruction ("Recording harus reuse LRN-001 recording lifecycle, jangan duplikasi model baru"), this task defines no `sourceKind`/`processingStatus`/`providerRef` vocabulary of its own - `linkRecording` is one `UPDATE live_sessions SET recording_id = ...` statement. Creating the underlying recording (`createRecording`, `markRecordingReady`) is entirely LRN-001's existing, unmodified code path; SCH-001 never calls those functions itself outside of test setup, matching how a real caller (a future admin route) would compose the two existing modules rather than SCH-001 owning recording creation.
+
+### Reschedule is append-only, matching dok 14 §13 literally, and reuses the same "new row, old row becomes terminal" discipline COM-003's purchase transitions already established
+
+`rescheduleLiveSession` never mutates a session's own `startsAt`/`endsAt` in place. The OLD row is marked `status = "rescheduled"` (a status this schema's own enum lists as terminal for join purposes - `isLiveSessionJoinable` excludes it) and keeps its original timing permanently ("jadwal lama tidak hilang dari audit", dok 14 §13); a NEW row is inserted with `rescheduledFromId` pointing at the old one. `rescheduledFromId` deliberately has no enforced FK constraint - the same choice `commerce.ts`'s `offers.upgradeFromOfferId` already made for a self-referential column, for the same reason (self-reference insert ordering is not worth the constraint at this stage).
+
+### Reminders are a synthetic scheduling record only - dok 19 §12's full notification lifecycle is explicitly NOT built here
+
+Per the founder instruction ("Reminder cukup outbox/synthetic scheduling model, bukan pengiriman nyata"), `live_session_reminders.status` only ever takes two values in this task's code (`planned`/`cancelled`) - dok 19 §12's richer `planned → queued → provider_accepted → delivered/read(optional) → failed → retried/dead` lifecycle belongs to NTF-001 (already in the backlog, `dependsOn: [..., "SCH-001", ...]`), not this task. `rescheduleLiveSession`/`cancelLiveSession` both cancel every still-`planned` reminder for the affected session (dok 19 §13 "Reschedule membatalkan job lama") - scheduling a fresh reminder for a new occurrence is left to the caller's own explicit `scheduleReminder` call, not auto-created, keeping the two concerns (occurrence lifecycle vs. reminder scheduling) composable rather than implicitly coupled.
+
+### Authorization needed zero changes to `permissions.ts` - `live.occurrence.manage` already existed
+
+IDN-004's permission matrix already carries `live.occurrence.manage: { level: "granted" }` for `academic_admin`, `operations_admin`, and `live_class_coordinator` - exactly the staff roles who should be able to reschedule/cancel a live session, established before this task began. `rescheduleLiveSession`/`cancelLiveSession` call `authorize()` with this existing permission unchanged, and both require a non-empty reason (`ScheduleReasonRequiredError`) before authorization is even checked - mirroring ENT-001/COM-006's audit-required-field discipline.
+
+### Consequences
+
+No live Zoom/Google Meet/video provider integration, no live WhatsApp/email reminder delivery, anywhere in this change. No `apps/web` route calls any of these functions yet - service/API-layer ready only, the same "service ready, UI deferred" shape every prior program/commerce task in this series has used. Gate B is not claimed PASS. `live_session_series`/per-session entitlement targeting (already present in ENT-001's `target_type` enum: `"live_session"`, `"live_session_series"`) remains unused - this task reuses program-level access (`assertProgramAccess`, matching LRN-001's own precedent) rather than inventing a per-session policy-authoring flow that has no admin UI to author it with yet.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- OD-03 final video/notification provider decision, before any of this task's synthetic `provider`/`externalMeetingRef` values are replaced with real ones;
+- review/support/download policies from Gate 2.

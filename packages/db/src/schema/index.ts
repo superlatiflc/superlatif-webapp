@@ -1,8 +1,10 @@
 export {
   grantEventType,
+  liveSessionStatus,
   purchaseState,
   recordStatus,
   recordingProcessingStatus,
+  scheduleItemType,
   targetType,
   userStatus,
 } from "./enums.ts";
@@ -36,3 +38,10 @@ export {
 } from "./curriculum.ts";
 export { assetDeliveryReferences, assets, recordings } from "./assets.ts";
 export { commerceOutbox, purchaseEvents, purchases, reconciliationCases } from "./purchases.ts";
+export {
+  liveSessionAttendance,
+  liveSessionJoinReferences,
+  liveSessionReminders,
+  liveSessions,
+  scheduleItems,
+} from "./schedule.ts";
