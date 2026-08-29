@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findCircularPrerequisite,
   resolveModuleVisibility,
+  resolvePlacementVisibility,
   resolveReleaseState,
   type ReleaseContext,
 } from "./release-rule.ts";
@@ -103,6 +104,27 @@ describe("resolveModuleVisibility", () => {
 
   it("a published module with a met release rule is released", () => {
     expect(resolveModuleVisibility("published", immediate, context())).toBe("released");
+  });
+});
+
+describe("resolvePlacementVisibility", () => {
+  const immediate = { mode: "immediate" as const };
+  const futureScheduled = { mode: "fixed_datetime" as const, releaseAt: "2099-01-01T00:00:00.000Z" };
+
+  it("an archived module hides its placement regardless of the placement's own release rule", () => {
+    expect(resolvePlacementVisibility("archived", immediate, immediate, context())).toBe("hidden_archived");
+  });
+
+  it("a released module with a locked placement rule is locked (AND, not OR)", () => {
+    expect(resolvePlacementVisibility("published", immediate, futureScheduled, context())).toBe("locked");
+  });
+
+  it("a locked module locks its placement even if the placement's own rule is met", () => {
+    expect(resolvePlacementVisibility("published", futureScheduled, immediate, context())).toBe("locked");
+  });
+
+  it("is released only when both the module and the placement's own rule are met", () => {
+    expect(resolvePlacementVisibility("published", immediate, immediate, context())).toBe("released");
   });
 });
 

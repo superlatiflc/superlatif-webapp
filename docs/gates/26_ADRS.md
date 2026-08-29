@@ -715,3 +715,48 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - ADR-018 late sync;
 - ADR-028 progress formula;
 - review/support/download policies from Gate 2.
+
+## ADR-054 — LRN-001: `assets`/`recordings`/`asset_delivery_references` schema, a two-check secure-delivery model, and reuse-without-duplication by owning assets on the resource version
+
+**Status:** Accepted  
+**Date:** 29 August 2026  
+**Decided during:** LRN-001 (reusable learning resources, assets, recordings, and secure delivery).
+
+### Schema fills exactly the gap ADR-053 left open
+
+ADR-053 explicitly deferred `assets` because it "needs real object storage" - this task fills that gap without ever touching one. Three new tables: `assets` (one deliverable file/stream owned by a `resource_version`, `role`-keyed so one version can carry more than one asset, e.g. a primary video plus a caption file, without a nested asset-of-an-asset chain), `recordings` (dok 14 §14's `pending → processing → ready/failed → archived` processing lifecycle, one row per recording-type resource version, independent of the resource version's own draft/published/archived status), and `asset_delivery_references` (the issued, time-bound tokens themselves). `resource_versions` still has no `primaryAssetId` column - ownership runs the other direction (`assets.resourceVersionId`), so the circular-FK problem a `primaryAssetId` column would have created never arises.
+
+`recording_processing_status` is a genuinely new Postgres enum (`pending`/`processing`/`ready`/`failed`/`archived`), transcribed verbatim from dok 14 §14 rather than invented - the same "document names it, code transcribes it" discipline `record_status`/`grant_event_type` already established (ADR-047).
+
+### `storageRef` is opaque end-to-end - "Jangan integrasi S3/CDN/video provider nyata dulu" enforced structurally, not just by convention
+
+`assets.storageRef` is a synthetic string shaped like a real object-storage key (e.g. `protected-learning/<resourceVersionId>/<uuid>`) but is never resolved against a real provider anywhere in this task. It is written once at asset creation and read in exactly one place in the entire codebase: `delivery-service.ts#resolveAssetDelivery`'s final, server-only return value - never by `requestAssetDelivery` (the function a student-facing caller would actually call), and never serialized into any response that function produces. The "no raw asset URL leak" required test asserts this directly (`Object.keys(request)` excludes `storageRef`, and the serialized response never contains its value), not just as a code-review convention.
+
+### Secure delivery is TWO checks, not one - dok 14 §14's "access mengikuti grant saat playback" taken literally
+
+`requestAssetDelivery` (issue time) composes exactly the existing primitives, inventing no new access rule: `assertProgramAccess` (ENT-002/IDN-004, unchanged) for program-level entitlement, plus a new pure `resolvePlacementVisibility` (`@superlatif/domain/program`) that ANDs a placement's own release rule with its parent module's already-existing `resolveModuleVisibility` - dok 14 §3/§6 give placements their own independent release condition ("Rules lebih kompleks memakai AND terbatas"), which PRG-002 had not yet modeled since nothing needed it until this task's delivery gate did.
+
+`resolveAssetDelivery` (redeem time) does not trust that a reference was validly issued earlier - it re-runs `assertProgramAccess` FRESH against the token's stored `userId`/`placementId`, in addition to checking the TTL. This is what dok 14 §14's "access mengikuti grant saat playback, bukan hanya saat link dibuat" means operationally: a reference that has not yet hit its TTL is still denied if the underlying grant was revoked in between (proven by the "unauthorized access" test's second case - issue, revoke, then redeem within the still-valid TTL window, and confirm denial).
+
+A delivery reference's `expiresAt` is `min(now + ttlSeconds, effectiveAccessDecision.effectiveTo)` (`@superlatif/domain/program#computeDeliveryExpiry`) - a reference can never outlive the grant that authorized it, even if the TTL alone would allow it to (proven directly by a dedicated test).
+
+### Only a hash is ever persisted - reusing `userSessions.secretHash`'s exact discipline, deliberately NOT its code
+
+`asset_delivery_references.tokenHash` is the only column; there is no raw-token column for application code to accidentally persist unhashed - identical reasoning to `identity.ts`'s `userSessions.secretHash` (IDN-001, dok 24 §4 "only hash stored server-side"). `@superlatif/domain/program/secure-delivery.ts` re-implements the same random-token/SHA-256-hash/timing-safe-compare shape as `@superlatif/domain/identity/session.ts` rather than importing it: a delivery reference and a session secret are different credential classes with different lifetimes and different revocation triggers (dok 24 §4's "idle and absolute expiry differentiated" already treats distinct credential classes as independently rotatable), so a bug in one generator must not be able to affect the other.
+
+### Resource reuse without duplication holds by construction, not by a new check
+
+"One resource can be attached to multiple programs without content copying" (acceptance criterion) was already true at the placement layer (PRG-002); this task extends the same guarantee to assets for free by giving `assets.resourceVersionId` - not `resourcePlacements` - ownership of the asset row. The "reusable resource" required test places the same resource version under two different programs' versions and confirms both placements' delivery resolves to the identical `storageRef`, with only one asset row ever created.
+
+### Consequences
+
+No download/stream proxy route exists in `apps/web` - `resolveAssetDelivery` is service/API-layer ready, exercised only by this task's own integration tests, exactly the "service ready, UI deferred" shape ADR-053/ENT-004 already used. No admin UI drives `createAsset`/`createRecording`/`markRecordingReady`. No real object storage, CDN, or video provider was integrated or contacted at any point - every "provider" reference in this task's tests (`provider:zoom:session-opaque-id`) is inert test data, never dereferenced. Gate B and Gate D remain exactly as open as ADR-052/ADR-053 already recorded them; this task does not claim either PASS.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- ADR-006 identity bridge;
+- ADR-008/010 hosting stack;
+- ADR-018 late sync;
+- ADR-028 progress formula;
+- review/support/download policies from Gate 2;
+- OD-03 final object storage/CDN provider decision, before any of this task's synthetic `storageRef` values are replaced with real ones.
