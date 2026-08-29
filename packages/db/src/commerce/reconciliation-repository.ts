@@ -25,7 +25,9 @@ export type ReconciliationCaseType =
   | "ambiguous_transition"
   | "unverifiable_partial_refund"
   | "policy_validity_unresolvable"
-  | "chargeback_review";
+  | "chargeback_review"
+  /** dok 05 §14 / dok 25 §12 "Paid order tanpa grant" - raised by ENT-003's detectPurchaseGrantDrift, resolved the same way every other case here is: a human reviews and calls resolveReconciliationCase, never an automatic grant. */
+  | "paid_purchase_no_grant";
 
 /** dok 25 §13's own queue-state vocabulary, transcribed verbatim. */
 export type ReconciliationCaseStatus =

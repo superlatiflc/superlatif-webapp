@@ -66,3 +66,5 @@ export {
   type ManualChangeStatus,
   type ManualChangeType,
 } from "./manual-change.ts";
+
+export { compareEffectiveAccessDecisions, type DriftKind, type DriftReport } from "./entitlement-drift.ts";
