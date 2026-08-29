@@ -57,6 +57,13 @@
       "when": 1787987156474,
       "tag": "0007_wealthy_firebird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787990391967,
+      "tag": "0008_colorful_lionheart",
+      "breakpoints": true
     }
   ]
 }

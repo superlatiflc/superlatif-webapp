@@ -64,3 +64,18 @@ export const recordingProcessingStatus = pgEnum("recording_processing_status", [
   "failed",
   "archived",
 ]);
+
+// CLAUDE.md's canonical "Purchase states" vocabulary, transcribed verbatim
+// (COM-002). This is the first task to actually persist it - COM-001's
+// products/offers/external_sku_mappings deliberately stopped short of
+// purchases/purchase_events (see commerce.ts's module doc).
+export const purchaseState = pgEnum("purchase_state", [
+  "pending",
+  "paid",
+  "failed",
+  "expired",
+  "cancelled",
+  "refunded_partial",
+  "refunded_full",
+  "chargeback",
+]);
