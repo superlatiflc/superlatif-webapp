@@ -40,3 +40,13 @@ export {
   hashDeliveryToken,
   type DeliveryReferenceValidity,
 } from "./secure-delivery.ts";
+
+export {
+  evaluateJoinWindow,
+  isLiveSessionJoinable,
+  renderInTimezone,
+  type JoinWindowConfig,
+  type JoinWindowState,
+  type LiveSessionStatus,
+  type ScheduleItemType,
+} from "./schedule.ts";
