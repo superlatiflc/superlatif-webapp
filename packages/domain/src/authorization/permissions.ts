@@ -4,6 +4,21 @@
 // permission from a role's entry means denied - this table is DEFAULT-DENY:
 // a role only has what is explicitly listed here, nothing is inferred.
 //
+// `exam.blueprint.*` (EXM-001) is a documented EXCEPTION to "transcribed
+// directly": dok 24 §6's own table has no dedicated row for blueprint
+// authoring/approval, but §7 "High-risk workflows" explicitly names
+// "blueprint/scoring publish" as requiring the same reason+preview+audit+
+// peer-approval treatment as every other high-risk item in that list. This
+// three-tier shape (draft/first_approve/publish) mirrors question.*
+// exactly - the closest existing precedent for "author, independent first
+// reviewer, second high-risk publish approval" - rather than inventing a
+// new shape. Granted to academic_admin (the role CLAUDE.md describes as
+// owning academic decisions) and moderator_reviewer for first_approve
+// (matching their broad first-approve role across question.* already);
+// tutor_writer does NOT get draft.write here - authoring exam
+// structure/timing/scoring policy is a different discipline than authoring
+// question content.
+//
 // dok 24 §6: "Permission names final berada di seed/config dan diuji" -
 // this matrix IS that seed/config: versioned, reviewed, testable code, not
 // a runtime-editable `role_permissions` database table (ADR-049 explains
@@ -18,6 +33,9 @@ export const PERMISSION_CODES = [
   "question.draft.write",
   "question.first_approve",
   "question.ranked_publish",
+  "exam.blueprint.draft.write",
+  "exam.blueprint.first_approve",
+  "exam.blueprint.publish",
   "program.publish",
   "batch.publish",
   "live.occurrence.manage",
@@ -63,6 +81,7 @@ export const ROLE_PERMISSION_MATRIX: Matrix = {
   moderator_reviewer: {
     "question.draft.write": { level: "granted" },
     "question.first_approve": { level: "granted" },
+    "exam.blueprint.first_approve": { level: "granted" },
     "program.publish": { level: "scoped_nuance", note: "Review tertentu" },
     "batch.publish": { level: "scoped_nuance", note: "Review" },
     "result.correction.request": { level: "granted" },
@@ -72,6 +91,9 @@ export const ROLE_PERMISSION_MATRIX: Matrix = {
     "question.draft.write": { level: "granted" },
     "question.first_approve": { level: "granted", requiresNonCreator: true },
     "question.ranked_publish": { level: "granted", requiresApproval: true, note: "Second approval" },
+    "exam.blueprint.draft.write": { level: "granted" },
+    "exam.blueprint.first_approve": { level: "granted", requiresNonCreator: true },
+    "exam.blueprint.publish": { level: "granted", requiresApproval: true, note: "Second approval" },
     "program.publish": { level: "granted" },
     "batch.publish": { level: "granted" },
     "live.occurrence.manage": { level: "granted" },
@@ -119,6 +141,9 @@ export const ROLE_PERMISSION_MATRIX: Matrix = {
     "question.draft.write": { level: "granted" },
     "question.first_approve": { level: "granted" },
     "question.ranked_publish": { level: "granted", requiresApproval: true, note: "Ya/approval" },
+    "exam.blueprint.draft.write": { level: "granted" },
+    "exam.blueprint.first_approve": { level: "granted" },
+    "exam.blueprint.publish": { level: "granted", requiresApproval: true, note: "Ya/approval" },
     "program.publish": { level: "granted" },
     "batch.publish": { level: "granted" },
     "live.occurrence.manage": { level: "granted" },

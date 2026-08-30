@@ -1,4 +1,5 @@
 export {
+  activationScope,
   grantEventType,
   liveSessionStatus,
   purchaseState,
@@ -57,3 +58,13 @@ export {
 } from "./questions.ts";
 export { questionImportJobs } from "./question-imports.ts";
 export { questionVersionReviews } from "./question-reviews.ts";
+export {
+  examBlueprintVersions,
+  examBlueprints,
+  examFamilies,
+  examFormItems,
+  examFormVersions,
+  examForms,
+  scoringPolicyVersions,
+  scoringPolicies,
+} from "./exam-config.ts";

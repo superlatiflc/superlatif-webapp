@@ -113,3 +113,13 @@ export const questionType = pgEnum("question_type", [
   "weighted_choice",
   "numeric",
 ]);
+
+// dok 17 §2 "Kosakata artefak kanonik" / CLAUDE.md "Activation scope" -
+// transcribed verbatim (EXM-001). `draft_only` may be authored/imported but
+// never published to staging/production; `staging` is for non-production
+// fixture/UAT use; `production` is only valid once approval status is
+// `active` and every activation gate (dok 17 §3) has passed - a condition
+// this task's own code never certifies (OD-04 is still open), so
+// `assertActivationScopeNotProduction` (@superlatif/domain/exam) refuses to
+// let any function in this task set this value to `production` at all.
+export const activationScope = pgEnum("activation_scope", ["draft_only", "staging", "production"]);
