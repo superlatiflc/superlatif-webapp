@@ -56,3 +56,4 @@ export {
   stimuli,
 } from "./questions.ts";
 export { questionImportJobs } from "./question-imports.ts";
+export { questionVersionReviews } from "./question-reviews.ts";

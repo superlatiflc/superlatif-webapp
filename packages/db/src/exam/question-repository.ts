@@ -42,6 +42,19 @@ export async function findQuestionByCode(db: Queryable<Schema>, code: string): P
   return row ?? null;
 }
 
+/** Mirrors findQuestionByCode by primary key - QST-003's preview service needs a version's OWN question code back (it only has questionId on hand from the version row). */
+export async function findQuestionById(
+  db: Queryable<Schema>,
+  questionId: string,
+): Promise<QuestionRow | null> {
+  const [row] = await db
+    .select(QUESTION_COLUMNS)
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Creates the stable question identity row if `code` is not already taken - the FIRST version of a question also creates its parent `questions` row, matching stimuli's own identity/version split. */
 export async function findOrCreateQuestion(db: Queryable<Schema>, code: string): Promise<QuestionRow> {
   const existing = await findQuestionByCode(db, code);

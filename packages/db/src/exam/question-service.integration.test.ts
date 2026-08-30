@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createUser } from "../identity/repository.ts";
 import { assignRole, seedCanonicalRoles } from "../authorization/index.ts";
 import { createTestDatabase, type TestDatabaseHandle } from "../test-client.ts";
-import { AnswerKeyValidationError } from "@superlatif/domain/exam";
+import { AnswerKeyValidationError, type ReviewChecklist } from "@superlatif/domain/exam";
 import {
   addQuestionAsset,
   addStimulusAsset,
@@ -31,6 +31,18 @@ import {
 import { QuestionAssetOwnerError } from "./question-asset-repository.ts";
 import { findQuestionVersionSecret } from "./question-secret-repository.ts";
 import { QuestionVersionLockedError } from "@superlatif/domain/exam";
+
+const COMPLETE_CHECKLIST: ReviewChecklist = {
+  classificationCorrect: true,
+  stemClear: true,
+  optionsComplete: true,
+  answerScoringCorrect: true,
+  explanationAdequate: true,
+  mediaReadable: true,
+  sourceAndRightsOk: true,
+  accessibilityMetadataOk: true,
+  notDuplicate: true,
+};
 
 let handle: TestDatabaseHandle;
 let writerId: string;
@@ -305,7 +317,7 @@ describe("version immutability / published version cannot mutate", () => {
       updateQuestionDraft(handle.db, writerId, version.id, { stemDocument: { text: "Revisi lagi." } }),
     ).resolves.toBeDefined();
 
-    await approveQuestionVersion(handle.db, approverId, version.id);
+    await approveQuestionVersion(handle.db, approverId, version.id, COMPLETE_CHECKLIST);
     // Locked from "approved" onward - before publish even happens.
     await expect(
       updateQuestionDraft(handle.db, writerId, version.id, { stemDocument: { text: "Tidak boleh." } }),
@@ -334,7 +346,7 @@ describe("version immutability / published version cannot mutate", () => {
   it("refuses maker-checker: the creator cannot approve their own draft", async () => {
     const version = await draftReadyQuestion();
     await submitQuestionVersionForReview(handle.db, writerId, version.id);
-    await expect(approveQuestionVersion(handle.db, writerId, version.id)).rejects.toThrow(
+    await expect(approveQuestionVersion(handle.db, writerId, version.id, COMPLETE_CHECKLIST)).rejects.toThrow(
       QuestionActionNotAuthorizedError,
     );
   });
