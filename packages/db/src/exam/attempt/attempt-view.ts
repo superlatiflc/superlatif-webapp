@@ -8,11 +8,13 @@
 // payload menggunakan student serializer dan tidak menyertakan scoring
 // secret."
 //
-// `answers`/`flags` are always empty here and `submissionState` is always
-// `not_submitted`/`ready` - this task builds no answer-save/submit path,
-// so there is nothing yet to report; the FIELDS still exist (matching
-// contracts/openapi.yaml's own `Attempt` shape) so a later task extends
-// this same view rather than building a second, competing one.
+// `answers` is now REAL data (ATM-002 wires up `answer_states` - the exact
+// extension ATM-001's own module doc anticipated: "a later task extends
+// this same view rather than building a second, competing one"). `flags`
+// stays empty and `submissionState` stays `not_submitted` - this task
+// builds answer-save but not flag-setting or submit; those FIELDS still
+// exist (matching contracts/openapi.yaml's own `Attempt` shape) for the
+// same reason.
 //
 // Per-instance content reuses `assembleStudentFacingQuestionView`
 // (question-preview-service.ts) - see that file's own module doc for why
@@ -30,6 +32,7 @@ import {
   computePermittedActions,
   computeInitialSectionNavigationStates,
   deriveWriterLeaseState,
+  type AnswerPayload,
   type AttemptPermittedAction,
   type AttemptStatus,
   type SectionNavigationState,
@@ -41,6 +44,7 @@ import { assembleStudentFacingQuestionView } from "../question-preview-service.t
 import type { AttemptRow } from "./attempt-repository.ts";
 import { listPresentedInstances } from "./attempt-question-instance-repository.ts";
 import { findActiveLease, type AttemptWriterLeaseRow } from "./attempt-writer-lease-repository.ts";
+import { listAnswerStatesForAttempt } from "./answer-state-repository.ts";
 
 export interface AttemptInstanceView {
   readonly instanceId: string;
@@ -54,6 +58,13 @@ export interface AttemptInstanceView {
 export interface AttemptSectionView {
   readonly code: string;
   readonly navigationState: SectionNavigationState;
+}
+
+export interface AttemptAnswerView {
+  readonly instanceId: string;
+  readonly revision: number;
+  readonly payload: AnswerPayload | null;
+  readonly updatedAt: Date;
 }
 
 export interface AttemptView {
@@ -70,8 +81,8 @@ export interface AttemptView {
   readonly sections: readonly AttemptSectionView[];
   readonly instances: readonly AttemptInstanceView[];
   readonly currentInstanceId: string | null;
-  /** Always empty - answer-save is not built by this task. See module doc. */
-  readonly answers: readonly never[];
+  readonly answers: readonly AttemptAnswerView[];
+  /** Always empty - flag-setting is not built by this task. See module doc. */
   readonly flags: readonly never[];
   readonly submissionState: "not_submitted";
   readonly permittedActions: readonly AttemptPermittedAction[];
@@ -118,6 +129,14 @@ export async function assembleAttemptView(
     });
   }
 
+  const answerStateRows = await listAnswerStatesForAttempt(db, attempt.id);
+  const answers: AttemptAnswerView[] = answerStateRows.map((row) => ({
+    instanceId: row.instanceId,
+    revision: row.revision,
+    payload: (row.payload as unknown as AnswerPayload | null) ?? null,
+    updatedAt: row.updatedAt,
+  }));
+
   const activeLease: AttemptWriterLeaseRow | null = await findActiveLease(db, attempt.id);
   const writerLeaseState = deriveWriterLeaseState(
     activeLease ? { tokenHash: activeLease.tokenHash, expiresAt: activeLease.expiresAt } : null,
@@ -142,7 +161,7 @@ export async function assembleAttemptView(
     sections,
     instances,
     currentInstanceId: instances[0]?.instanceId ?? null,
-    answers: [],
+    answers,
     flags: [],
     submissionState: "not_submitted",
     permittedActions,

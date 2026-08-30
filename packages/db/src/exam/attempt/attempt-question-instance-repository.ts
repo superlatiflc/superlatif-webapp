@@ -67,3 +67,16 @@ export async function listPresentedInstances(
     .orderBy(asc(attemptQuestionInstances.sequence));
   return rows as AttemptQuestionInstanceRow[];
 }
+
+/** ATM-002: one instance, looked up by its own id (the `{instanceId}` path segment of `PUT /attempts/{id}/answers/{instanceId}`). The caller still must verify `attemptId` ownership itself - this function does not scope by attempt. */
+export async function findInstanceById(
+  db: Queryable<Schema>,
+  instanceId: string,
+): Promise<AttemptQuestionInstanceRow | null> {
+  const [row] = await db
+    .select(INSTANCE_COLUMNS)
+    .from(attemptQuestionInstances)
+    .where(eq(attemptQuestionInstances.id, instanceId))
+    .limit(1);
+  return (row as AttemptQuestionInstanceRow | undefined) ?? null;
+}

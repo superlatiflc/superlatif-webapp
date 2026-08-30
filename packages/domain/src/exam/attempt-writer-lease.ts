@@ -18,6 +18,18 @@
 // scope is start + snapshot + resume only; the takeover endpoint is a
 // later ATM task once answer-save/WRITER_LEASE_REVOKED enforcement exists
 // to actually need it).
+//
+// ATM-002 adds `assertWriterLeaseValidForWrite`: the fail-closed gate dok
+// 16 §7 requires for every WRITE ("Mutation dari lease lama ditolak dengan
+// WRITER_LEASE_REVOKED") - anything other than the requesting device
+// holding the CURRENT active, unexpired lease refuses the write, using
+// dok 16 §19's own two stable codes: `WRITER_LEASE_REQUIRED` (no token
+// presented at all) and `WRITER_LEASE_REVOKED` (a token was presented but
+// does not match the active lease, or the lease has expired/been taken
+// over by another device). "Two-device lease conflict" (required test)
+// is this function refusing device A's write the instant device B's
+// takeover has revoked A's lease - fail-closed by construction, not by a
+// race-prone "check then act" the caller has to get right on its own.
 
 export type WriterLeaseState = "held_here" | "held_elsewhere" | "expired";
 
@@ -54,4 +66,31 @@ export function computeWriterLeaseExpiry(
     throw new RangeError(`ttlSeconds must be a positive finite number, received ${String(ttlSeconds)}`);
   }
   return new Date(now.getTime() + ttlSeconds * 1000);
+}
+
+export class WriterLeaseRequiredError extends Error {
+  constructor() {
+    super("WRITER_LEASE_REQUIRED: this write requires a writer lease token");
+    this.name = "WriterLeaseRequiredError";
+  }
+}
+
+export class WriterLeaseRevokedError extends Error {
+  constructor(readonly observedState: Exclude<WriterLeaseState, "held_here">) {
+    super(
+      `WRITER_LEASE_REVOKED: presented lease token is not the active writer lease (observed "${observedState}")`,
+    );
+    this.name = "WriterLeaseRevokedError";
+  }
+}
+
+/** See module doc - the fail-closed gate every answer-save write goes through. */
+export function assertWriterLeaseValidForWrite(
+  activeLease: ActiveWriterLeaseInput | null,
+  presentedTokenHash: string | null,
+  now: Date,
+): void {
+  if (presentedTokenHash === null) throw new WriterLeaseRequiredError();
+  const state = deriveWriterLeaseState(activeLease, presentedTokenHash, now);
+  if (state !== "held_here") throw new WriterLeaseRevokedError(state);
 }

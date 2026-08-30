@@ -52,3 +52,42 @@ export function assertValidAttemptStatusTransition(from: AttemptStatus, to: Atte
     throw new InvalidAttemptStatusTransitionError(from, to);
   }
 }
+
+// ---------------------------------------------------------------------------
+// ATM-002: answer-save writability guard.
+// ---------------------------------------------------------------------------
+
+const FINALIZED_ATTEMPT_STATUSES: ReadonlySet<AttemptStatus> = new Set([
+  "submitting",
+  "submitted",
+  "scoring",
+  "scored",
+]);
+
+/** Maps to dok 16 §19's own stable codes: `SUBMISSION_ALREADY_FINALIZED` once a (future) submit path has moved the attempt past `in_progress`, `ATTEMPT_NOT_RESUMABLE` otherwise (`created`/`voided`). */
+export class AttemptNotWritableError extends Error {
+  readonly code: "SUBMISSION_ALREADY_FINALIZED" | "ATTEMPT_NOT_RESUMABLE";
+  constructor(readonly status: AttemptStatus) {
+    const code = FINALIZED_ATTEMPT_STATUSES.has(status)
+      ? "SUBMISSION_ALREADY_FINALIZED"
+      : "ATTEMPT_NOT_RESUMABLE";
+    super(`${code}: attempt status "${status}" does not accept answer writes`);
+    this.name = "AttemptNotWritableError";
+    this.code = code;
+  }
+}
+
+/**
+ * Only `in_progress` accepts answer writes. `created` should be
+ * unreachable in practice (start already transitions to `in_progress`
+ * atomically, ATM-001) but is refused defensively rather than assumed
+ * away. `submitting`/`submitted`/`scoring`/`scored` are dok 16 §19's own
+ * `SUBMISSION_ALREADY_FINALIZED` territory - this task builds no submit
+ * path, so those statuses are never actually reached by any code this
+ * task ships, but the guard is total (covers every `AttemptStatus`) so a
+ * future submit task's writes are refused here automatically, not by
+ * remembering to add a case.
+ */
+export function assertAttemptWritable(status: AttemptStatus): void {
+  if (status !== "in_progress") throw new AttemptNotWritableError(status);
+}

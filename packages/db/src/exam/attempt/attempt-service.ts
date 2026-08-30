@@ -18,14 +18,20 @@
 
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
+  assertAnswerPayloadMatchesQuestionType,
   assertAttemptStartEligible,
+  assertAttemptWritable,
   assertSupportedPresentationPolicy,
+  assertWriterLeaseValidForWrite,
   buildPresentedInstances,
   computeAttemptSnapshotChecksum,
   computeWriterLeaseExpiry,
+  evaluateAnswerTimingWindow,
   generateWriterLeaseToken,
   hashWriterLeaseToken,
+  resolveAnswerSaveOutcome,
   writerLeaseTokenMatchesHash,
+  type AnswerPayload,
   type AttemptStartAccessDecision,
   type BlueprintPresentation,
   type BlueprintSection,
@@ -43,24 +49,32 @@ import {
 } from "../batch/index.ts";
 import { findExamBlueprintVersionById } from "../config/exam-blueprint-repository.ts";
 import { findExamFormVersionById, listExamFormItems } from "../config/exam-form-repository.ts";
-import { listQuestionOptions } from "../question-repository.ts";
+import { findQuestionVersionById, listQuestionOptions } from "../question-repository.ts";
 import {
   countActiveAttemptsForUserBatch,
   findActiveAttemptForUserBatch,
   findAttemptById,
   findAttemptByUserAndIdempotencyKey,
+  incrementAttemptRevision,
   insertAttempt,
   transitionAttemptStatus,
   AttemptNotFoundError,
   type AttemptRow,
 } from "./attempt-repository.ts";
-import { insertPresentedInstances } from "./attempt-question-instance-repository.ts";
+import { findInstanceById, insertPresentedInstances } from "./attempt-question-instance-repository.ts";
 import {
   findActiveLease,
   issueLease,
   renewActiveLease,
+  revokeActiveLease,
   type AttemptWriterLeaseRow,
 } from "./attempt-writer-lease-repository.ts";
+import { findAnswerState, upsertAnswerState } from "./answer-state-repository.ts";
+import {
+  findMutationByClientId,
+  insertAnswerMutation,
+  type AnswerMutationOutcome,
+} from "./answer-mutation-repository.ts";
 import { assembleAttemptView, type AttemptView } from "./attempt-view.ts";
 
 export class AttemptBatchNotFoundError extends Error {
@@ -376,4 +390,277 @@ export async function renewWriterLease(
   }
 
   return renewActiveLease(db, activeLease.id, now, computeWriterLeaseExpiry(now));
+}
+
+/**
+ * Explicit takeover (dok 16 §7: "Perangkat kedua dapat... melakukan
+ * explicit takeover. Takeover membatalkan lease lama dan dicatat.") -
+ * revokes whatever lease is currently active (if any - a takeover is also
+ * how a device reclaims write access after its OWN lease expired) and
+ * issues a brand new one to the caller. Any device still holding the OLD
+ * token is refused on its next write by `assertWriterLeaseValidForWrite`
+ * (`WRITER_LEASE_REVOKED`) - this is the other half of "Lease conflicts...
+ * resolve without silent answer loss": the loser learns immediately, on
+ * its very next write attempt, rather than silently overwriting or being
+ * silently overwritten.
+ */
+/** `leaseToken` is the raw, one-time-visible bearer token - only ever returned here, at the instant of issuance, exactly like `createAttempt`'s own `AttemptView.writerLease.leaseToken`. `lease` is the stored row (hash only). */
+export interface WriterLeaseTakeoverResult {
+  readonly lease: AttemptWriterLeaseRow;
+  readonly leaseToken: string;
+}
+
+export async function takeoverWriterLease(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  userId: string,
+  attemptId: string,
+  now: Date,
+): Promise<WriterLeaseTakeoverResult> {
+  const attempt = await findAttemptById(db, attemptId);
+  if (!attempt) throw new AttemptNotFoundError(attemptId);
+  if (attempt.userId !== userId) throw new AttemptNotOwnedError(attemptId);
+
+  const activeLease = await findActiveLease(db, attemptId);
+  if (activeLease) await revokeActiveLease(db, activeLease.id, now, "explicit_takeover");
+
+  const leaseToken = generateWriterLeaseToken();
+  const lease = await issueLease(db, {
+    attemptId,
+    tokenHash: hashWriterLeaseToken(leaseToken),
+    issuedAt: now,
+    expiresAt: computeWriterLeaseExpiry(now),
+  });
+  return { lease, leaseToken };
+}
+
+// ---------------------------------------------------------------------------
+// ATM-002: answer save (server-authoritative timer, monotonic CAS, offline-
+// reconnect-safe idempotency, fail-closed lease enforcement).
+// ---------------------------------------------------------------------------
+
+export class AttemptInstanceNotFoundError extends Error {
+  constructor(instanceId: string) {
+    super(`Question instance ${instanceId} not found on this attempt`);
+    this.name = "AttemptInstanceNotFoundError";
+  }
+}
+
+export class AnswerMutationIdReusedError extends Error {
+  constructor(readonly clientMutationId: string) {
+    super(`IDEMPOTENCY_KEY_REUSED: mutation "${clientMutationId}" was already used for a different request`);
+    this.name = "AnswerMutationIdReusedError";
+  }
+}
+
+export class AttemptDeadlinePassedError extends Error {
+  constructor() {
+    super(
+      "ATTEMPT_DEADLINE_PASSED: past the late-sync recovery cutoff, this attempt no longer accepts writes",
+    );
+    this.name = "AttemptDeadlinePassedError";
+  }
+}
+
+export class AnswerRevisionConflictError extends Error {
+  constructor(
+    readonly currentRevision: number,
+    readonly currentPayload: AnswerPayload | null,
+  ) {
+    super(`ANSWER_REVISION_CONFLICT: current revision is ${currentRevision}`);
+    this.name = "AnswerRevisionConflictError";
+  }
+}
+
+export interface SaveAnswerInput {
+  readonly instanceId: string;
+  readonly clientMutationId: string;
+  readonly leaseToken: string | null;
+  readonly expectedRevision: number;
+  readonly payload: AnswerPayload | null;
+  readonly capturedAtClient: Date | null;
+}
+
+export type SaveAnswerResult =
+  | {
+      readonly kind: "accepted";
+      readonly revision: number;
+      readonly payload: AnswerPayload | null;
+      readonly attemptRevision: number;
+      readonly serverSavedAt: Date;
+    }
+  | {
+      readonly kind: "idempotent_replay";
+      readonly revision: number;
+      readonly payload: AnswerPayload | null;
+      readonly attemptRevision: number;
+      readonly serverSavedAt: Date;
+    }
+  | { readonly kind: "recovery_candidate"; readonly serverSavedAt: Date };
+
+function toJsonbPayload(payload: AnswerPayload | null): Record<string, unknown> | null {
+  return payload === null ? null : (payload as unknown as Record<string, unknown>);
+}
+function fromJsonbPayload(payload: Record<string, unknown> | null): AnswerPayload | null {
+  return payload === null ? null : (payload as unknown as AnswerPayload);
+}
+
+/**
+ * dok 16 §8's full processing pipeline. Order matters and mirrors that
+ * section exactly: attempt ownership/writability, mutation-ID dedup
+ * (returns the ORIGINALLY recorded outcome verbatim on any retry - this
+ * is the entire mechanism behind "Offline reconnect harus idempotent dan
+ * tidak menggandakan answer" and "Duplicate answer request"), the
+ * server-authoritative timing window (§10), the writer lease (§7, fail-
+ * closed on ANY state other than `held_here`), answer schema validation
+ * against the snapshotted question type (§8's own mapping table), and
+ * finally the CAS decision (answer-save-cas.ts).
+ */
+export async function saveAnswer(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  userId: string,
+  attemptId: string,
+  input: SaveAnswerInput,
+  now: Date,
+): Promise<SaveAnswerResult> {
+  const attempt = await findAttemptById(db, attemptId);
+  if (!attempt) throw new AttemptNotFoundError(attemptId);
+  if (attempt.userId !== userId) throw new AttemptNotOwnedError(attemptId);
+  assertAttemptWritable(attempt.status);
+
+  const instance = await findInstanceById(db, input.instanceId);
+  if (!instance || instance.attemptId !== attemptId) throw new AttemptInstanceNotFoundError(input.instanceId);
+
+  // Deduplicate client_mutation_id BEFORE anything else (dok 16 §8 step 3 /
+  // dok 22 §14): a retry (offline reconnect, or plain network-uncertainty
+  // retry) with the SAME id must get back the SAME recorded outcome,
+  // never re-run the CAS decision against whatever the current state has
+  // since become.
+  const existingMutation = await findMutationByClientId(
+    db,
+    attemptId,
+    input.instanceId,
+    input.clientMutationId,
+  );
+  if (existingMutation) {
+    const samePayload =
+      JSON.stringify(existingMutation.payload) === JSON.stringify(toJsonbPayload(input.payload));
+    if (existingMutation.expectedRevision !== input.expectedRevision || !samePayload) {
+      throw new AnswerMutationIdReusedError(input.clientMutationId);
+    }
+    if (existingMutation.outcome === "conflict") {
+      const current = await findAnswerState(db, attemptId, input.instanceId);
+      throw new AnswerRevisionConflictError(
+        current?.revision ?? 0,
+        fromJsonbPayload(current?.payload ?? null),
+      );
+    }
+    if (existingMutation.outcome === "late_sync_recovery_candidate") {
+      return { kind: "recovery_candidate", serverSavedAt: existingMutation.serverReceivedAt };
+    }
+    return {
+      kind: existingMutation.outcome,
+      revision: existingMutation.resultingRevision ?? 0,
+      payload: fromJsonbPayload(existingMutation.payload),
+      attemptRevision: attempt.attemptRevision,
+      serverSavedAt: existingMutation.serverReceivedAt,
+    };
+  }
+
+  const timingWindow = evaluateAnswerTimingWindow(now, attempt.deadlineAt, attempt.lateSyncCutoffAt);
+  if (timingWindow === "rejected") throw new AttemptDeadlinePassedError();
+
+  const activeLease = await findActiveLease(db, attemptId);
+  const presentedTokenHash = input.leaseToken ? hashWriterLeaseToken(input.leaseToken) : null;
+  assertWriterLeaseValidForWrite(activeLease, presentedTokenHash, now);
+  const leaseTokenHash = presentedTokenHash as string; // non-null: assertWriterLeaseValidForWrite already refused null.
+
+  const questionVersion = await findQuestionVersionById(db, instance.questionVersionId);
+  if (!questionVersion) {
+    throw new Error(`saveAnswer: question version ${instance.questionVersionId} not found`);
+  }
+  const knownCodes = instance.presentedOptionOrder ?? [];
+  assertAnswerPayloadMatchesQuestionType(questionVersion.type, input.payload, knownCodes);
+
+  if (timingWindow === "late_sync_recovery_candidate") {
+    await insertAnswerMutation(db, {
+      attemptId,
+      instanceId: input.instanceId,
+      clientMutationId: input.clientMutationId,
+      leaseTokenHash,
+      expectedRevision: input.expectedRevision,
+      payload: toJsonbPayload(input.payload),
+      outcome: "late_sync_recovery_candidate",
+      resultingRevision: null,
+      capturedAtClient: input.capturedAtClient,
+      serverReceivedAt: now,
+    });
+    return { kind: "recovery_candidate", serverSavedAt: now };
+  }
+
+  const txResult = await db.transaction(async (tx) => {
+    const currentState = await findAnswerState(tx, attemptId, input.instanceId);
+    const casOutcome = resolveAnswerSaveOutcome({
+      currentRevision: currentState?.revision ?? 0,
+      currentPayload: fromJsonbPayload(currentState?.payload ?? null),
+      expectedRevision: input.expectedRevision,
+      newPayload: input.payload,
+    });
+
+    const insertMutationRow = (outcome: AnswerMutationOutcome, resultingRevision: number | null) =>
+      insertAnswerMutation(tx, {
+        attemptId,
+        instanceId: input.instanceId,
+        clientMutationId: input.clientMutationId,
+        leaseTokenHash,
+        expectedRevision: input.expectedRevision,
+        payload: toJsonbPayload(input.payload),
+        outcome,
+        resultingRevision,
+        capturedAtClient: input.capturedAtClient,
+        serverReceivedAt: now,
+      });
+
+    if (casOutcome.kind === "accepted") {
+      await upsertAnswerState(
+        tx,
+        attemptId,
+        input.instanceId,
+        casOutcome.newRevision,
+        toJsonbPayload(input.payload),
+        now,
+      );
+      const updatedAttempt = await incrementAttemptRevision(tx, attemptId);
+      await insertMutationRow("accepted", casOutcome.newRevision);
+      return {
+        kind: "accepted" as const,
+        revision: casOutcome.newRevision,
+        payload: input.payload,
+        attemptRevision: updatedAttempt.attemptRevision,
+      };
+    }
+    if (casOutcome.kind === "idempotent_replay") {
+      await insertMutationRow("idempotent_replay", casOutcome.revision);
+      return {
+        kind: "idempotent_replay" as const,
+        revision: casOutcome.revision,
+        payload: casOutcome.payload,
+        attemptRevision: attempt.attemptRevision,
+      };
+    }
+    // conflict - the mutation row is still committed (not thrown from
+    // inside the transaction) so a future retry of this SAME mutation ID
+    // finds it and replays this exact outcome, rather than re-running the
+    // CAS against whatever the state has become by then.
+    await insertMutationRow("conflict", casOutcome.currentRevision);
+    return {
+      kind: "conflict" as const,
+      currentRevision: casOutcome.currentRevision,
+      currentPayload: casOutcome.currentPayload,
+    };
+  });
+
+  if (txResult.kind === "conflict") {
+    throw new AnswerRevisionConflictError(txResult.currentRevision, txResult.currentPayload);
+  }
+  return { ...txResult, serverSavedAt: now };
 }
