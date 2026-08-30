@@ -127,6 +127,13 @@
       "when": 1788100887193,
       "tag": "0017_numerous_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788107717234,
+      "tag": "0018_material_mojo",
+      "breakpoints": true
     }
   ]
 }

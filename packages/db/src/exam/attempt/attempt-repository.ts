@@ -10,7 +10,7 @@
 // refuses the second one, surfaced here as `AttemptAlreadyExistsError`
 // wrapping the underlying unique-violation.
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { assertValidAttemptStatusTransition, type AttemptStatus } from "@superlatif/domain/exam";
 import type { Queryable, Schema } from "../../db-types.ts";
@@ -147,6 +147,28 @@ export async function insertAttempt(db: Queryable<Schema>, input: InsertAttemptI
     })
     .returning(ATTEMPT_COLUMNS);
   if (!row) throw new Error("insertAttempt: insert returned no row");
+  return row as AttemptRow;
+}
+
+/**
+ * ATM-002: bumps the attempt-wide optimistic-concurrency counter by
+ * exactly 1, atomically at the database (`revision + 1`, not a
+ * read-then-write in application code) - called once per ACCEPTED answer
+ * mutation, from inside the SAME transaction that upserts `answer_states`
+ * (attempt-service.ts's own `saveAnswer`). This is a coarser counter than
+ * `answer_states.revision` (per-instance) - see schema/attempts.ts's own
+ * module doc on why the two are deliberately separate granularities.
+ */
+export async function incrementAttemptRevision(
+  db: Queryable<Schema>,
+  attemptId: string,
+): Promise<AttemptRow> {
+  const [row] = await db
+    .update(attempts)
+    .set({ attemptRevision: sql`${attempts.attemptRevision} + 1` })
+    .where(eq(attempts.id, attemptId))
+    .returning(ATTEMPT_COLUMNS);
+  if (!row) throw new AttemptNotFoundError(attemptId);
   return row as AttemptRow;
 }
 
