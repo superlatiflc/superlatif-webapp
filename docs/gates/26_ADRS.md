@@ -1370,3 +1370,64 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - a decision on whether rejected (past-cutoff) mutations should ALSO be captured as diagnostic telemetry (dok 16 §10's own "dapat," optional) - not built by this task;
 - confirmation that the DEFAULT_WRITER_LEASE_TTL_SECONDS (120s, ATM-001's own provisional value) is adequate once a real client's actual heartbeat/renewal cadence is measured under load;
 - a decision on flag-setting (`PUT /attempts/{id}/flags/{instanceId}`) - explicitly not built by this task either, though it shares the same attempt/writer-lease machinery this task just built.
+
+## ADR-068 — ATM-003: submit and timeout finalization share one race-safe function, `transitionAttemptStatus` drops its own nested transaction so submit stays atomic, and a driver-error `.cause` bug was caught by the "Expiry race" test it was written to satisfy
+
+**Status:** Accepted
+**Date:** 31 August 2026
+**Decided during:** ATM-003 (final submit, timeout auto-submit, and attempt audit telemetry).
+
+### Scope: final submit + timeout auto-submit + audit telemetry only
+
+Per the founder's explicit instruction, this task builds ONLY dok 16 §13's submit contract and §21's observability/audit telemetry - no scoring engine, no ranking, no pembahasan/explanation release, no full tryout UI. `Submission` and the append-only audit log are the two dok 16 §3 concepts this task adds; `Result version`/ranking remain untouched (SCR-series territory). A scoring job is enqueued into a transactional outbox but nothing in this task, or any task before it, ever consumes that table.
+
+### `contracts/openapi.yaml`'s `SubmitRequest`/`SubmissionEnvelope`/`ResultState`/`Attempt.submissionState` were checked before design, same discipline as every prior task since ADR-064
+
+`SubmitRequest` {mutationId (uuid), leaseToken, expectedAttemptRevision, acknowledgedUnansweredCount?} is transcribed as `SubmitTrigger`'s `"user"` variant. `ResultState` (`processing|provisional|final|corrected|withheld|voided`, CLAUDE.md canonical) is transcribed verbatim but this task's own response only ever produces the literal `"processing"` - no `results` table exists yet, so nothing else in the enum is reachable from this code. `Attempt.submissionState`'s `ready`/`blocked_unsynced` distinction (the full submit-summary feature) is explicitly NOT built - out of this task's narrow acceptance criteria - leaving that field's fuller behavior for a later task.
+
+### One function serves both a user-submit and a timeout-submit - this is what makes the race-safety argument actually hold
+
+`submitAttempt(db, attemptId, trigger, now)` takes a `SubmitTrigger` discriminated union (`{kind:"user", userId, mutationId, leaseToken, expectedAttemptRevision, acknowledgedUnansweredCount?}` vs `{kind:"timeout"}`) rather than being two separate functions. dok 16 §13 explicitly allows "Scheduler/worker DAN request path... memicu finalization" - if these were two independently-written code paths, "user-submit vs timeout-submit race menghasilkan tepat satu submitted snapshot" would depend on both authors independently getting the same check-existing-first-then-insert sequence right. One function removes that risk by construction: both triggers funnel through the identical existing-submission check, `assertAttemptSubmittable`, snapshot freeze, and transactional insert - only the user-specific lease/revision validation branches on `trigger.kind`.
+
+`finalizeExpiredAttemptIfDue(db, attemptId, now)` is a thin, timeout-specific wrapper: it fires at `attempt.lateSyncCutoffAt`, not `deadlineAt` - deliberately later than the deadline. Recovery-candidate mutations (ATM-002) never touch `answer_states` regardless of when they arrive, so the frozen snapshot `submitAttempt` produces is already stable by `deadlineAt`; waiting for the FULL cutoff instead simply respects the entire late-sync recovery grace window dok 16 intends before an attempt is declared closed, rather than cutting that window short.
+
+### `transitionAttemptStatus` lost its own nested `db.transaction()` so a submission's insert, two status hops, outbox insert, and audit rows are ONE atomic unit
+
+ATM-001/002 only ever called `transitionAttemptStatus` at the top level, and it wrapped itself in its own transaction. ATM-003 needs `created`→`in_progress`... no - `in_progress`→`submitting`→`submitted` to commit or roll back TOGETHER with the submission row, the scoring-outbox row, and both audit-event rows, or a crash between steps could leave a submission row committed with the attempt still stuck at `in_progress` and no scoring job ever enqueued - a real, if narrow, correctness gap. The fix generalizes the function to accept `Queryable<Schema>` (a plain db handle OR an open transaction) instead of always opening a fresh one, exactly matching every OTHER repository function's own shape (`incrementAttemptRevision`, `insertAnswerMutation`, `upsertAnswerState`) - the transaction-boundary decision now belongs entirely to the caller, which is the correct general shape this codebase already used everywhere except this one function. `createAttempt`'s own single-statement call (line 252, unchanged behavior) still passes the top-level `db` handle directly.
+
+### A genuine unique-violation race is caught OUTSIDE the transaction, never inside it - and the FIRST attempt to catch it inside was wrong in a way only the "Expiry race" test caught
+
+The insert into `attempt_submissions` can lose a real concurrent race (a user-submit and a timeout-submit both passing the pre-transaction existence check before either commits). The naive fix - catch the unique-violation and re-query the winner FROM INSIDE the same transaction - is broken: once a statement inside a Postgres transaction errors, the whole transaction is aborted and every subsequent statement on that same handle fails with "current transaction is aborted" until a ROLLBACK. The actual implementation throws a private `SubmissionRaceLostError` sentinel from inside the transaction callback (letting drizzle roll the whole thing back cleanly and re-throw), catches THAT sentinel outside the transaction, and re-queries the winner using the plain, non-aborted `db` handle - never the poisoned `tx`.
+
+A second bug surfaced only by actually running the "Expiry race" integration test (two real concurrent `submitAttempt`/`finalizeExpiredAttemptIfDue` calls against a pglite-backed Postgres): the initial `isUniqueViolation(error)` check looked at `error.code`, which is `undefined` - drizzle-orm wraps every driver error in its own `DrizzleQueryError`, with the raw postgres error (the one actually carrying `.code === "23505"`) attached as `.cause` (ES2022 error-cause chaining). The loser's insert therefore re-threw a real, uncaught database error instead of gracefully replaying the winner's submission. Fixed by checking `error.cause?.code` as well as `error.code`. This is recorded here specifically because it is the kind of bug that ONLY a genuine concurrent-race test catches - a sequential "double submit" test never exercises the catch branch at all, since the second call's own existing-submission check finds the first call's row before ever reaching the insert.
+
+### `attempt_audit_events` is allowlisted by construction - the same "no field exists to assign a secret to" pattern this codebase keeps reusing
+
+Every column is individually typed and pre-vetted safe (attempt id, event type, trigger, actor, revision-at-event, checksum, recovery state) - there is no JSONB "metadata" column at all, unlike `commerce_outbox`'s own free-form `payload`. "Audit telemetry harus bisa rekonstruksi incident tanpa logging answer payload/secrets" holds by this table's own shape: the "Audit reconstruction" test asserts both structurally (no `payload`/`metadata` key exists on any row) and by literal content (the fixture's own correct-answer-key and option-weight values, serialized, never appear in the trail).
+
+### `scoring_job_outbox` mirrors `commerce_outbox`'s exact shape, with a deliberately minimal payload
+
+Same transactional-outbox pattern COM-003 already established (id/targetId-FK/eventType/payload/status/createdAt/deliveredAt), applied to a new domain. The payload is `{submissionId, attemptId}` only - "Jangan bangun scoring engine" means no worker in this task, or any task before it, ever reads this table; a future scoring worker re-queries `answer_states`/`attempt_submissions` fresh by these two ids rather than trusting a duplicated snapshot sitting in the outbox row.
+
+### Submit's own revision check reuses `ANSWER_REVISION_CONFLICT` - no new error code invented for a case dok 16 §19 does not separately name
+
+A stale `expectedAttemptRevision` at submit time is conceptually the same failure as a stale `expectedRevision` at answer-save time (a client acting on data older than the server's current state) - dok 16 §19's stable code list has no distinct code for the attempt-wide submit case, and CLAUDE.md's "do not introduce synonyms without updating the domain document" applies exactly here. `SubmitRevisionConflictError` (`submission-lifecycle.ts`) carries the same `ANSWER_REVISION_CONFLICT` prefix as `AnswerRevisionConflictError`, deliberately.
+
+### `assertAttemptWritable`'s own `SUBMISSION_ALREADY_FINALIZED` branch (declared unreachable by ATM-002's own doc comment) is now reachable, and the doc comment is corrected to say so
+
+ATM-002 wrote `assertAttemptWritable`'s doc comment noting `submitting`/`submitted`/`scoring`/`scored` "are never actually reached by any code this task ships" and that the guard exists defensively "for a future submit task." That future task is this one - `submitAttempt` moves an attempt through exactly those statuses, so an answer-save attempted after submission now genuinely exercises `SUBMISSION_ALREADY_FINALIZED`, not just a theoretical guard. The comment is corrected rather than left stale.
+
+### `mutation_id`/`clientMutationId` are `uuid`-typed columns, matching `answer_mutations.client_mutation_id` - not an arbitrary opaque string
+
+Confirmed against both the existing schema (`answer_mutations.client_mutation_id` is `uuid`, ATM-002) and `contracts/openapi.yaml`'s own `SubmitRequest.mutationId` (`format: uuid`) before writing `attempt_submissions.mutation_id` the same way. The integration test's own fixture mutation IDs were initially plain human-readable strings ("m1", "submit-1") and failed against the real schema exactly as they should have - fixed in the test, not the schema, once the contract was re-checked.
+
+### Consequences
+
+No scoring engine, ranking, result release, explanation/pembahasan, or full tryout UI exists after this change - an attempt can now be finally submitted (by the student or by a timeout), its answer state and revision are frozen into an immutable submission row, a scoring job sits in an outbox nothing yet drains, and every submission/replay event is captured in an audit trail reconstructable without ever touching answer content - but no attempt is ever scored, ranked, or shown a result by this task. No `apps/web` route calls any of these functions yet. Gate C/D are not claimed PASS - OD-04 remains open, and every fixture in this task's own tests uses clearly synthetic dates, codes, and answer/weight values, never a real 2026 SKD scenario. `attempt_submissions`/`scoring_job_outbox`/`attempt_audit_events` are purely additive tables (migration `0019_red_zuras.sql`); `transitionAttemptStatus`'s signature widened from `PgDatabase` to `Queryable<Schema>` but its external behavior for existing callers (`createAttempt`, and the ATM-002 integration test's own direct call) is unchanged.
+
+Audit findings must update ADR status rather than silently editing conclusions. Minimum founder confirmations:
+
+- a decision on which task owns the late-sync recovery adjudication workflow that decides `recoveryState` beyond `none`/`candidate_stored` (`under_adjudication`/`accepted`/`rejected` are declared in the type but never produced by this task);
+- a decision on which task builds the actual scoring worker that drains `scoring_job_outbox` and produces the first real `results` row (SCR-series) - `resultState` stays hardcoded `"processing"` until then;
+- a decision on whether `Attempt.submissionState`'s `ready`/`blocked_unsynced` distinction (the submit-summary feature dok 16 §13 also describes - counts of answered/unanswered/flagged before the client commits to a final submit) is a separate task or folded into a scoring/UI task;
+- confirmation that firing timeout finalization at `lateSyncCutoffAt` (not `deadlineAt`) is the correct interim policy, given no real scheduler/worker invokes `finalizeExpiredAttemptIfDue` yet - this task builds the function only, not the cron/queue trigger that would call it in production.

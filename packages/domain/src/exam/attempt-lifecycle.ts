@@ -82,11 +82,11 @@ export class AttemptNotWritableError extends Error {
  * unreachable in practice (start already transitions to `in_progress`
  * atomically, ATM-001) but is refused defensively rather than assumed
  * away. `submitting`/`submitted`/`scoring`/`scored` are dok 16 §19's own
- * `SUBMISSION_ALREADY_FINALIZED` territory - this task builds no submit
- * path, so those statuses are never actually reached by any code this
- * task ships, but the guard is total (covers every `AttemptStatus`) so a
- * future submit task's writes are refused here automatically, not by
- * remembering to add a case.
+ * `SUBMISSION_ALREADY_FINALIZED` territory - reachable since ATM-003's
+ * `submitAttempt` moves an attempt through exactly those statuses; the
+ * guard being total (covers every `AttemptStatus`) meant a further answer
+ * write was already refused here automatically once that path shipped,
+ * with nothing to add on this side.
  */
 export function assertAttemptWritable(status: AttemptStatus): void {
   if (status !== "in_progress") throw new AttemptNotWritableError(status);
