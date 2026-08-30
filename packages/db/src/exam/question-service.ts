@@ -13,7 +13,13 @@
 
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { authorize } from "@superlatif/domain/authorization";
-import type { AnswerKey, QuestionType, RecordStatus } from "@superlatif/domain/exam";
+import {
+  assertReviewChecklistComplete,
+  type AnswerKey,
+  type QuestionType,
+  type RecordStatus,
+  type ReviewChecklist,
+} from "@superlatif/domain/exam";
 import type { Schema } from "../db-types.ts";
 import { listActiveRoleHoldings } from "../authorization/index.ts";
 import {
@@ -34,6 +40,7 @@ import {
   type ReplaceQuestionOptionInput,
   type UpdateQuestionVersionDraftInput,
 } from "./question-repository.ts";
+import { recordQuestionVersionReview } from "./question-review-repository.ts";
 import { upsertQuestionVersionSecret } from "./question-secret-repository.ts";
 import {
   createStimulusVersionDraft,
@@ -180,16 +187,36 @@ export async function addQuestionAsset(
   return insertQuestionAsset(db, input);
 }
 
-/** The creator submits their own draft for review - no maker-checker check here (that only applies at approval). */
+/**
+ * The creator submits their own draft for review - no maker-checker check
+ * here (that only applies at approval). Logs a `submitted_for_review` row
+ * to `question_version_reviews` (QST-003) in the SAME transaction as the
+ * status transition - the audit trail can never disagree with the status
+ * it describes.
+ */
 export async function submitQuestionVersionForReview(
   db: PgDatabase<PgQueryResultHKT, Schema>,
   actorUserId: string,
   versionId: string,
 ): Promise<QuestionVersionRow> {
   await assertQuestionPermission(db, actorUserId, "question.draft.write");
-  return transitionQuestionVersionStatus(db, versionId, "in_review", new Date());
+  return db.transaction(async (tx) => {
+    const version = await transitionQuestionVersionStatus(tx, versionId, "in_review", new Date());
+    await recordQuestionVersionReview(tx, {
+      questionVersionId: versionId,
+      actorUserId,
+      action: "submitted_for_review",
+    });
+    return version;
+  });
 }
 
+/**
+ * dok 12 §31/founder instruction "rejected revisions harus preserve
+ * history": `reason` is persisted to `question_version_reviews`, not just
+ * required-then-discarded - a later re-approval never erases WHY changes
+ * were requested the first time.
+ */
 export async function requestQuestionVersionChanges(
   db: PgDatabase<PgQueryResultHKT, Schema>,
   actorUserId: string,
@@ -198,7 +225,16 @@ export async function requestQuestionVersionChanges(
 ): Promise<QuestionVersionRow> {
   if (!reason.trim()) throw new QuestionReasonRequiredError();
   await assertQuestionPermission(db, actorUserId, "question.first_approve");
-  return transitionQuestionVersionStatus(db, versionId, "changes_requested", new Date());
+  return db.transaction(async (tx) => {
+    const version = await transitionQuestionVersionStatus(tx, versionId, "changes_requested", new Date());
+    await recordQuestionVersionReview(tx, {
+      questionVersionId: versionId,
+      actorUserId,
+      action: "changes_requested",
+      reason,
+    });
+    return version;
+  });
 }
 
 /**
@@ -207,11 +243,20 @@ export async function requestQuestionVersionChanges(
  * approving their own draft is denied with MAKER_CHECKER_VIOLATION before
  * the permission matrix is even consulted (dok 02 §5.3 / CLAUDE.md
  * "requester cannot approve the same high-risk action").
+ *
+ * dok 12 §31's nine-item review checklist (@superlatif/domain/exam's
+ * `ReviewChecklist`) is REQUIRED and enforced - `assertReviewChecklistComplete`
+ * throws `ReviewChecklistIncompleteError` before the status transition is
+ * even attempted if any item is unchecked. It runs AFTER the maker-checker
+ * check, so a self-approval attempt is still denied first regardless of
+ * checklist completeness - authorization always precedes content checks in
+ * this codebase's own established order.
  */
 export async function approveQuestionVersion(
   db: PgDatabase<PgQueryResultHKT, Schema>,
   actorUserId: string,
   versionId: string,
+  checklist: ReviewChecklist,
 ): Promise<QuestionVersionRow> {
   const version = await findQuestionVersionById(db, versionId);
   if (!version) throw new Error(`approveQuestionVersion: question version ${versionId} not found`);
@@ -221,7 +266,17 @@ export async function approveQuestionVersion(
     "question.first_approve",
     version.createdByUserId ?? undefined,
   );
-  return transitionQuestionVersionStatus(db, versionId, "approved", new Date());
+  assertReviewChecklistComplete(checklist);
+  return db.transaction(async (tx) => {
+    const approved = await transitionQuestionVersionStatus(tx, versionId, "approved", new Date());
+    await recordQuestionVersionReview(tx, {
+      questionVersionId: versionId,
+      actorUserId,
+      action: "approved",
+      checklist: checklist as unknown as Record<string, unknown>,
+    });
+    return approved;
+  });
 }
 
 /** `question.ranked_publish` is granted with `requiresApproval: true` in the permission matrix - informational only per IDN-004's own documented precedent; the two-actor REQUEST/DECIDE persistence workflow (ENT-004) is out of this task's scope. */
@@ -231,7 +286,11 @@ export async function publishQuestionVersion(
   versionId: string,
 ): Promise<QuestionVersionRow> {
   await assertQuestionPermission(db, actorUserId, "question.ranked_publish");
-  return transitionQuestionVersionStatus(db, versionId, "published", new Date());
+  return db.transaction(async (tx) => {
+    const version = await transitionQuestionVersionStatus(tx, versionId, "published", new Date());
+    await recordQuestionVersionReview(tx, { questionVersionId: versionId, actorUserId, action: "published" });
+    return version;
+  });
 }
 
 export async function archiveQuestionVersion(
@@ -240,7 +299,11 @@ export async function archiveQuestionVersion(
   versionId: string,
 ): Promise<QuestionVersionRow> {
   await assertQuestionPermission(db, actorUserId, "question.ranked_publish");
-  return transitionQuestionVersionStatus(db, versionId, "archived", new Date());
+  return db.transaction(async (tx) => {
+    const version = await transitionQuestionVersionStatus(tx, versionId, "archived", new Date());
+    await recordQuestionVersionReview(tx, { questionVersionId: versionId, actorUserId, action: "archived" });
+    return version;
+  });
 }
 
 export interface CreateStimulusDraftInput {

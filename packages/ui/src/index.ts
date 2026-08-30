@@ -14,5 +14,14 @@
 export { EmptyState, type EmptyStateProps } from "./components/EmptyState.tsx";
 export { NextActionCard, type NextActionCardProps } from "./components/NextActionCard.tsx";
 export { ProgramCard, type ProgramCardProps } from "./components/ProgramCard.tsx";
+export {
+  QuestionPreviewCard,
+  type QuestionPreviewAsset,
+  type QuestionPreviewCardProps,
+  type QuestionPreviewData,
+  type QuestionPreviewOption,
+  type QuestionPreviewResponseKind,
+  type QuestionPreviewStimulus,
+} from "./components/QuestionPreviewCard.tsx";
 export { Skeleton, type SkeletonProps } from "./components/Skeleton.tsx";
 export { StatusBadge, type StatusBadgeProps, type StatusBadgeVariant } from "./components/StatusBadge.tsx";

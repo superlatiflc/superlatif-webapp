@@ -32,6 +32,15 @@ export async function findStimulusByCode(db: Queryable<Schema>, code: string): P
   return row ?? null;
 }
 
+/** Mirrors findStimulusByCode by primary key - QST-003's preview service only has a stimulusId (from a question_version's stimulusVersionId's parent) on hand, not the code. */
+export async function findStimulusById(
+  db: Queryable<Schema>,
+  stimulusId: string,
+): Promise<StimulusRow | null> {
+  const [row] = await db.select(STIMULUS_COLUMNS).from(stimuli).where(eq(stimuli.id, stimulusId)).limit(1);
+  return row ?? null;
+}
+
 export async function findOrCreateStimulus(db: Queryable<Schema>, code: string): Promise<StimulusRow> {
   const existing = await findStimulusByCode(db, code);
   if (existing) return existing;
