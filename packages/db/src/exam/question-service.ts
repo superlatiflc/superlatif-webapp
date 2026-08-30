@@ -23,6 +23,7 @@ import {
 } from "./question-asset-repository.ts";
 import {
   createQuestionVersionDraft,
+  findLatestQuestionVersion,
   findOrCreateQuestion,
   findQuestionVersionById,
   replaceQuestionOptions,
@@ -36,6 +37,7 @@ import {
 import { upsertQuestionVersionSecret } from "./question-secret-repository.ts";
 import {
   createStimulusVersionDraft,
+  findLatestStimulusVersion,
   findOrCreateStimulus,
   transitionStimulusVersionStatus,
   updateStimulusVersionDraft,
@@ -56,9 +58,11 @@ export class QuestionReasonRequiredError extends Error {
   }
 }
 
-type QuestionPermission = "question.draft.write" | "question.first_approve" | "question.ranked_publish";
+export type QuestionPermission =
+  "question.draft.write" | "question.first_approve" | "question.ranked_publish";
 
-async function assertQuestionPermission(
+/** Exported for question-import-service.ts (QST-002) to reuse for its own upfront job-level check - the same permission-checking code path, not a second one. */
+export async function assertQuestionPermission(
   db: PgDatabase<PgQueryResultHKT, Schema>,
   actorUserId: string,
   permission: QuestionPermission,
@@ -110,6 +114,41 @@ export async function updateQuestionDraft(
 ): Promise<QuestionVersionRow> {
   await assertQuestionPermission(db, actorUserId, "question.draft.write");
   return updateQuestionVersionDraft(db, versionId, patch);
+}
+
+/**
+ * dok 15A §6: "Kode lama yang approved, published, atau pernah digunakan
+ * tidak ditimpa; mode create_revision membuat version baru." Requires the
+ * question to already exist (unlike createQuestionDraft, this never creates
+ * a new `questions` identity row) and computes the next version number
+ * itself from the current latest version - the caller (QST-002's import
+ * pipeline) never guesses a version number.
+ */
+export async function createQuestionRevision(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  actorUserId: string,
+  questionId: string,
+  input: {
+    readonly type: QuestionType;
+    readonly stimulusVersionId?: string | null;
+    readonly classification?: Record<string, unknown>;
+    readonly stemDocument: Record<string, unknown>;
+    readonly explanationDocument?: Record<string, unknown> | null;
+  },
+): Promise<QuestionVersionRow> {
+  await assertQuestionPermission(db, actorUserId, "question.draft.write");
+  const latest = await findLatestQuestionVersion(db, questionId);
+  const nextVersion = (latest?.version ?? 0) + 1;
+  return createQuestionVersionDraft(db, {
+    questionId,
+    version: nextVersion,
+    type: input.type,
+    stimulusVersionId: input.stimulusVersionId ?? null,
+    classification: input.classification ?? {},
+    stemDocument: input.stemDocument,
+    explanationDocument: input.explanationDocument ?? null,
+    createdByUserId: actorUserId,
+  });
 }
 
 export async function setQuestionOptions(
@@ -232,6 +271,19 @@ export async function updateStimulusDraft(
 ): Promise<StimulusVersionRow> {
   await assertQuestionPermission(db, actorUserId, "question.draft.write");
   return updateStimulusVersionDraft(db, versionId, bodyDocument);
+}
+
+/** Mirrors createQuestionRevision for a passage/stimulus - same dok 15A §6 rule, generalized to any recordStatus-locked artifact. */
+export async function createStimulusRevision(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  actorUserId: string,
+  stimulusId: string,
+  bodyDocument: Record<string, unknown>,
+): Promise<StimulusVersionRow> {
+  await assertQuestionPermission(db, actorUserId, "question.draft.write");
+  const latest = await findLatestStimulusVersion(db, stimulusId);
+  const nextVersion = (latest?.version ?? 0) + 1;
+  return createStimulusVersionDraft(db, { stimulusId, version: nextVersion, bodyDocument });
 }
 
 export async function addStimulusAsset(

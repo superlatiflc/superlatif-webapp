@@ -17,6 +17,8 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "drizzle-orm": "0.45.2",
+    "exceljs": "4.4.0",
+    "jszip": "3.10.1",
     "postgres": "3.4.9"
   },
   "devDependencies": {
