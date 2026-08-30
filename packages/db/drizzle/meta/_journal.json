@@ -120,6 +120,13 @@
       "when": 1788091164228,
       "tag": "0016_early_black_bolt",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788100887193,
+      "tag": "0017_numerous_reavers",
+      "breakpoints": true
     }
   ]
 }
