@@ -16,7 +16,7 @@
 // row, which are separate relational rows locked by the SAME version-level
 // status gate rather than folded into one JSON blob.
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
   assertQuestionVersionMutable,
@@ -340,6 +340,20 @@ export async function findQuestionVersionByQuestionAndVersion(
     .select(QUESTION_VERSION_COLUMNS)
     .from(questionVersions)
     .where(and(eq(questionVersions.questionId, questionId), eq(questionVersions.version, version)))
+    .limit(1);
+  return (row as QuestionVersionRow | undefined) ?? null;
+}
+
+/** The highest-numbered version row for a question, or null if the question has no versions at all. QST-002's import pipeline uses this to decide (via @superlatif/domain/exam's resolveImportRowIntent) whether a `question_code` from a workbook is brand new, still-mutable, or locked. */
+export async function findLatestQuestionVersion(
+  db: Queryable<Schema>,
+  questionId: string,
+): Promise<QuestionVersionRow | null> {
+  const [row] = await db
+    .select(QUESTION_VERSION_COLUMNS)
+    .from(questionVersions)
+    .where(eq(questionVersions.questionId, questionId))
+    .orderBy(desc(questionVersions.version))
     .limit(1);
   return (row as QuestionVersionRow | undefined) ?? null;
 }

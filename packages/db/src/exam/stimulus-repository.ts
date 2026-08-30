@@ -7,7 +7,7 @@
 // question_versions.stimulusVersionId being a plain FK any number of
 // question versions can point at the same stimulus_versions row.
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
   assertQuestionVersionMutable,
@@ -114,6 +114,20 @@ export async function findStimulusVersionByStimulusAndVersion(
     .select(STIMULUS_VERSION_COLUMNS)
     .from(stimulusVersions)
     .where(and(eq(stimulusVersions.stimulusId, stimulusId), eq(stimulusVersions.version, version)))
+    .limit(1);
+  return (row as StimulusVersionRow | undefined) ?? null;
+}
+
+/** Mirrors question-repository.ts's findLatestQuestionVersion for the same reason - QST-002's import pipeline needs to know a passage_code's latest version status to decide create/update/revise. */
+export async function findLatestStimulusVersion(
+  db: Queryable<Schema>,
+  stimulusId: string,
+): Promise<StimulusVersionRow | null> {
+  const [row] = await db
+    .select(STIMULUS_VERSION_COLUMNS)
+    .from(stimulusVersions)
+    .where(eq(stimulusVersions.stimulusId, stimulusId))
+    .orderBy(desc(stimulusVersions.version))
     .limit(1);
   return (row as StimulusVersionRow | undefined) ?? null;
 }
