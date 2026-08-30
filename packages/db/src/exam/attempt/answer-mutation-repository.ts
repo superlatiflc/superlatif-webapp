@@ -96,3 +96,21 @@ export async function insertAnswerMutation(
   if (!row) throw new Error("insertAnswerMutation: insert returned no row");
   return row as AnswerMutationRow;
 }
+
+/** ATM-003: does this attempt have any `late_sync_recovery_candidate` mutation at all? Feeds `SubmissionEnvelope.data.recoveryState` ("none" vs "candidate_stored") - this task builds no adjudication workflow, so `under_adjudication`/`accepted`/`rejected` are never produced here. */
+export async function hasRecoveryCandidateMutations(
+  db: Queryable<Schema>,
+  attemptId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: answerMutations.id })
+    .from(answerMutations)
+    .where(
+      and(
+        eq(answerMutations.attemptId, attemptId),
+        eq(answerMutations.outcome, "late_sync_recovery_candidate"),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}

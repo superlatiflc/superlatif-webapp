@@ -11,7 +11,6 @@
 // wrapping the underlying unique-violation.
 
 import { and, eq, ne, sql } from "drizzle-orm";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { assertValidAttemptStatusTransition, type AttemptStatus } from "@superlatif/domain/exam";
 import type { Queryable, Schema } from "../../db-types.ts";
 import { attempts } from "../../schema/index.ts";
@@ -172,27 +171,38 @@ export async function incrementAttemptRevision(
   return row as AttemptRow;
 }
 
+/**
+ * ATM-003 note: this used to wrap itself in its own `db.transaction()`.
+ * Refactored to take `Queryable<Schema>` (db handle OR open transaction),
+ * matching every other repository function in this file, so a caller that
+ * needs read-validate-write to be atomic WITH other statements (ATM-003's
+ * `submitAttempt` composes this with a submission-row insert, an outbox
+ * insert, and audit-event inserts that must all commit or all roll back
+ * together) can pass its own `tx` in rather than getting a second,
+ * independent transaction nested inside the first. Callers that only need
+ * this one statement to be atomic (e.g. `createAttempt`'s own
+ * `created` -> `in_progress` hop) simply pass the top-level `db` handle,
+ * unchanged from before.
+ */
 export async function transitionAttemptStatus(
-  db: PgDatabase<PgQueryResultHKT, Schema>,
+  db: Queryable<Schema>,
   attemptId: string,
   toStatus: AttemptStatus,
 ): Promise<AttemptRow> {
-  return db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select(ATTEMPT_COLUMNS)
-      .from(attempts)
-      .where(eq(attempts.id, attemptId))
-      .limit(1);
-    if (!existing) throw new AttemptNotFoundError(attemptId);
-    const current = existing as AttemptRow;
-    assertValidAttemptStatusTransition(current.status, toStatus);
+  const [existing] = await db
+    .select(ATTEMPT_COLUMNS)
+    .from(attempts)
+    .where(eq(attempts.id, attemptId))
+    .limit(1);
+  if (!existing) throw new AttemptNotFoundError(attemptId);
+  const current = existing as AttemptRow;
+  assertValidAttemptStatusTransition(current.status, toStatus);
 
-    const [row] = await tx
-      .update(attempts)
-      .set({ status: toStatus })
-      .where(eq(attempts.id, attemptId))
-      .returning(ATTEMPT_COLUMNS);
-    if (!row) throw new Error("transitionAttemptStatus: update returned no row");
-    return row as AttemptRow;
-  });
+  const [row] = await db
+    .update(attempts)
+    .set({ status: toStatus })
+    .where(eq(attempts.id, attemptId))
+    .returning(ATTEMPT_COLUMNS);
+  if (!row) throw new Error("transitionAttemptStatus: update returned no row");
+  return row as AttemptRow;
 }

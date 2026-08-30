@@ -1,9 +1,10 @@
-// Exam subdomain barrel (QST-001, EXM-001, EXM-002, ATM-001, ATM-002).
-// Question bank, exam-config (family/blueprint/scoring/form), tryout batch
-// + window modeling, attempt start/snapshot/resume, and answer-save
-// lease/timer/CAS. Final submit, scoring, and ranking computation remain
-// explicitly out of scope for every module here (see each file's own
-// module doc for why) - they are later ATM/SCR-series work.
+// Exam subdomain barrel (QST-001, EXM-001, EXM-002, ATM-001, ATM-002,
+// ATM-003). Question bank, exam-config (family/blueprint/scoring/form),
+// tryout batch + window modeling, attempt start/snapshot/resume,
+// answer-save lease/timer/CAS, and final submit + expiry finalization.
+// Scoring and ranking computation remain explicitly out of scope for
+// every module here (see each file's own module doc for why) - they are
+// later SCR-series work.
 
 export * from "./question-types.ts";
 export * from "./answer-key.ts";
@@ -36,3 +37,5 @@ export * from "./attempt-permitted-actions.ts";
 export * from "./answer-payload.ts";
 export * from "./answer-save-cas.ts";
 export * from "./attempt-timing-window.ts";
+export * from "./submission-lifecycle.ts";
+export * from "./answer-set-checksum.ts";

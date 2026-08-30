@@ -20,10 +20,13 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
   assertAnswerPayloadMatchesQuestionType,
   assertAttemptStartEligible,
+  assertAttemptSubmittable,
   assertAttemptWritable,
+  assertSubmitRevisionCurrent,
   assertSupportedPresentationPolicy,
   assertWriterLeaseValidForWrite,
   buildPresentedInstances,
+  computeAnswerSetChecksum,
   computeAttemptSnapshotChecksum,
   computeWriterLeaseExpiry,
   evaluateAnswerTimingWindow,
@@ -69,12 +72,24 @@ import {
   revokeActiveLease,
   type AttemptWriterLeaseRow,
 } from "./attempt-writer-lease-repository.ts";
-import { findAnswerState, upsertAnswerState } from "./answer-state-repository.ts";
+import { findAnswerState, listAnswerStatesForAttempt, upsertAnswerState } from "./answer-state-repository.ts";
 import {
   findMutationByClientId,
+  hasRecoveryCandidateMutations,
   insertAnswerMutation,
   type AnswerMutationOutcome,
 } from "./answer-mutation-repository.ts";
+import {
+  findSubmissionByAttemptId,
+  insertSubmission,
+  type AttemptSubmissionRow,
+} from "./attempt-submission-repository.ts";
+import { enqueueScoringJob } from "./scoring-outbox-repository.ts";
+import {
+  insertAuditEvent,
+  listAuditEventsForAttempt,
+  type AttemptAuditEventRow,
+} from "./attempt-audit-repository.ts";
 import { assembleAttemptView, type AttemptView } from "./attempt-view.ts";
 
 export class AttemptBatchNotFoundError extends Error {
@@ -663,4 +678,270 @@ export async function saveAnswer(
     throw new AnswerRevisionConflictError(txResult.currentRevision, txResult.currentPayload);
   }
   return { ...txResult, serverSavedAt: now };
+}
+
+// ---------------------------------------------------------------------------
+// ATM-003: final submit, timeout auto-submit, and audit telemetry.
+// ---------------------------------------------------------------------------
+
+/**
+ * Distinguishes a user-initiated final submit from a scheduler/worker-
+ * initiated timeout finalization (dok 16 §13: both paths "dapat memicu
+ * finalization"). Only the "user" variant carries writer-lease and
+ * expected-revision fields to validate - a timeout finalization has no
+ * device lease to check and no specific calling user to own it against; it
+ * simply locks whatever `answer_states` currently holds for the attempt.
+ */
+export type SubmitTrigger =
+  | {
+      readonly kind: "user";
+      readonly userId: string;
+      readonly mutationId: string;
+      readonly leaseToken: string;
+      readonly expectedAttemptRevision: number;
+      readonly acknowledgedUnansweredCount?: number;
+    }
+  | { readonly kind: "timeout" };
+
+/**
+ * Mirrors `SubmissionEnvelope.data.recoveryState` (contracts/openapi.yaml).
+ * This task builds no adjudication workflow, so only `none` and
+ * `candidate_stored` are ever produced here - `under_adjudication`,
+ * `accepted`, and `rejected` belong to a future adjudication feature.
+ */
+export type SubmissionRecoveryState =
+  "none" | "candidate_stored" | "under_adjudication" | "accepted" | "rejected";
+
+export interface SubmitAttemptResult {
+  readonly submission: AttemptSubmissionRow;
+  /** True only when THIS call's own insert created the row - false for every replay (double submit, worker retry after an apparent failure, or the losing side of a genuine user-submit/timeout race). */
+  readonly created: boolean;
+  /** Always "processing": no `results` table exists yet (SCR-series territory) - a scoring job now sits in the outbox, but nothing in this task ever consumes it. */
+  readonly resultState: "processing";
+  readonly recoveryState: SubmissionRecoveryState;
+}
+
+async function freezeAnswerSetChecksum(db: Queryable<Schema>, attemptId: string): Promise<string> {
+  const rows = await listAnswerStatesForAttempt(db, attemptId);
+  return computeAnswerSetChecksum(
+    rows.map((row) => ({
+      instanceId: row.instanceId,
+      revision: row.revision,
+      payload: fromJsonbPayload(row.payload),
+    })),
+  );
+}
+
+async function resolveRecoveryState(
+  db: Queryable<Schema>,
+  attemptId: string,
+): Promise<SubmissionRecoveryState> {
+  return (await hasRecoveryCandidateMutations(db, attemptId)) ? "candidate_stored" : "none";
+}
+
+/** Sentinel thrown INSIDE the submit transaction on a unique-violation race loss, then caught OUTSIDE it - see `submitAttempt`'s own comment on why the recovery re-query cannot reuse the same (now-aborted) transaction handle. */
+class SubmissionRaceLostError extends Error {}
+
+/** Postgres SQLSTATE for a unique-constraint violation. Checked narrowly (not a blanket catch) so an unrelated failure - a genuine bug, a dropped connection - is never silently reinterpreted as "someone else already submitted". */
+/**
+ * drizzle-orm wraps every driver error in its own `DrizzleQueryError`,
+ * with the raw postgres error (the one that actually carries `.code`)
+ * attached as `.cause` (ES2022 error-cause chaining) - checked one level
+ * deep so this still matches, not just a bare driver error.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "23505") return true;
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  return typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "23505";
+}
+
+/**
+ * dok 16 §13 submit contract + §22 test #8 ("Submit dan timeout race
+ * menghasilkan satu snapshot"). One function serves BOTH triggers - see
+ * `SubmitTrigger`'s own doc - so the race-safety argument holds for a
+ * user-submit racing a timeout-submit exactly as it does for two ordinary
+ * retries: both funnel through the same check-existing-first sequence
+ * (mirrors `startOrResumeAttempt`'s own duality), with the unique index on
+ * `attempt_submissions.attempt_id` (schema/submissions.ts) as the actual
+ * arbiter of a genuine simultaneous race.
+ *
+ * A double call for the SAME attempt - a user double-click, a worker retry
+ * after a transient failure, or a real user-submit/timeout race - is
+ * always a safe, idempotent no-op returning the ALREADY-recorded
+ * submission (`created: false`). Submit carries no client-dictated content
+ * to conflict over (unlike answer-save's CAS): it just freezes whatever
+ * `answer_states` currently holds, so a replay can never diverge from the
+ * first winner's snapshot.
+ */
+export async function submitAttempt(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  attemptId: string,
+  trigger: SubmitTrigger,
+  now: Date,
+): Promise<SubmitAttemptResult> {
+  const attempt = await findAttemptById(db, attemptId);
+  if (!attempt) throw new AttemptNotFoundError(attemptId);
+  if (trigger.kind === "user" && attempt.userId !== trigger.userId) throw new AttemptNotOwnedError(attemptId);
+
+  const existing = await findSubmissionByAttemptId(db, attemptId);
+  if (existing) {
+    await insertAuditEvent(db, {
+      attemptId,
+      eventType: "submission_replayed",
+      triggeredBy: trigger.kind,
+      actorUserId: trigger.kind === "user" ? trigger.userId : null,
+      attemptRevisionAtEvent: attempt.attemptRevision,
+      answerSetChecksum: existing.answerSetChecksum,
+      recoveryState: null,
+      occurredAt: now,
+    });
+    return {
+      submission: existing,
+      created: false,
+      resultState: "processing",
+      recoveryState: await resolveRecoveryState(db, attemptId),
+    };
+  }
+
+  assertAttemptSubmittable(attempt.status);
+
+  if (trigger.kind === "user") {
+    const activeLease = await findActiveLease(db, attemptId);
+    const presentedTokenHash = hashWriterLeaseToken(trigger.leaseToken);
+    assertWriterLeaseValidForWrite(activeLease, presentedTokenHash, now);
+    assertSubmitRevisionCurrent(trigger.expectedAttemptRevision, attempt.attemptRevision);
+  }
+
+  const answerSetChecksum = await freezeAnswerSetChecksum(db, attemptId);
+  const actorUserId = trigger.kind === "user" ? trigger.userId : null;
+
+  let txResult: { readonly submission: AttemptSubmissionRow; readonly created: boolean };
+  try {
+    txResult = await db.transaction(async (tx) => {
+      let submission: AttemptSubmissionRow;
+      try {
+        submission = await insertSubmission(tx, {
+          attemptId,
+          mutationId: trigger.kind === "user" ? trigger.mutationId : null,
+          triggeredBy: trigger.kind,
+          answerSetChecksum,
+          attemptRevisionAtSubmit: attempt.attemptRevision,
+          acknowledgedUnansweredCount:
+            trigger.kind === "user" ? (trigger.acknowledgedUnansweredCount ?? null) : null,
+          submittedAt: now,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) throw new SubmissionRaceLostError();
+        throw error;
+      }
+
+      // Two hops, not one - the attempt status machine only allows one
+      // transition at a time (@superlatif/domain/exam's own
+      // `assertValidAttemptStatusTransition`).
+      await transitionAttemptStatus(tx, attemptId, "submitting");
+      await transitionAttemptStatus(tx, attemptId, "submitted");
+      await enqueueScoringJob(tx, submission.id, attemptId);
+      await insertAuditEvent(tx, {
+        attemptId,
+        eventType: "submitted",
+        triggeredBy: trigger.kind,
+        actorUserId,
+        attemptRevisionAtEvent: attempt.attemptRevision,
+        answerSetChecksum,
+        recoveryState: null,
+        occurredAt: now,
+      });
+      await insertAuditEvent(tx, {
+        attemptId,
+        eventType: "scoring_job_enqueued",
+        triggeredBy: trigger.kind,
+        actorUserId,
+        attemptRevisionAtEvent: attempt.attemptRevision,
+        answerSetChecksum,
+        recoveryState: null,
+        occurredAt: now,
+      });
+
+      return { submission, created: true };
+    });
+  } catch (error) {
+    if (!(error instanceof SubmissionRaceLostError)) throw error;
+    // The transaction above rolled back in full - re-query with the plain
+    // (non-aborted) `db` handle, never the poisoned `tx` from inside it.
+    const winner = await findSubmissionByAttemptId(db, attemptId);
+    if (!winner) throw error; // genuinely unexpected: a violation just occurred, so a row must exist.
+    await insertAuditEvent(db, {
+      attemptId,
+      eventType: "submission_replayed",
+      triggeredBy: trigger.kind,
+      actorUserId,
+      attemptRevisionAtEvent: attempt.attemptRevision,
+      answerSetChecksum: winner.answerSetChecksum,
+      recoveryState: null,
+      occurredAt: now,
+    });
+    txResult = { submission: winner, created: false };
+  }
+
+  return {
+    submission: txResult.submission,
+    created: txResult.created,
+    resultState: "processing",
+    recoveryState: await resolveRecoveryState(db, attemptId),
+  };
+}
+
+/**
+ * Timeout / scheduler-triggered finalization (dok 16 §13: "Scheduler/worker
+ * DAN request path dapat memicu finalization"). Fires at
+ * `attempt.lateSyncCutoffAt`, not `deadlineAt` - deliberately later than
+ * the deadline. Recovery-candidate mutations (ATM-002) never touch
+ * `answer_states` regardless of when they arrive, so the frozen snapshot
+ * this produces is already stable by `deadlineAt`; waiting for the FULL
+ * cutoff instead simply respects the entire late-sync recovery grace
+ * window dok 16 intends before an attempt is declared closed, rather than
+ * cutting that window short. See the ATM-003 ADR for the full reasoning.
+ *
+ * Returns `null` only when there is genuinely nothing to do: no submission
+ * exists yet AND (the attempt is not `in_progress` - e.g. voided, never
+ * started - OR it is not yet due). Once a submission exists (from this
+ * same timeout path on an earlier call, or from a user-submit that won a
+ * race against it), every subsequent call - a worker retry after a
+ * transient failure, or a speculative re-scan - delegates to
+ * `submitAttempt`'s own idempotent-replay path and returns that SAME real
+ * result, never `null` and never a second row ("Worker retry tidak boleh
+ * membuat submit ganda"). Safe for a worker to call speculatively on every
+ * attempt it scans.
+ */
+export async function finalizeExpiredAttemptIfDue(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  attemptId: string,
+  now: Date,
+): Promise<SubmitAttemptResult | null> {
+  const attempt = await findAttemptById(db, attemptId);
+  if (!attempt) throw new AttemptNotFoundError(attemptId);
+
+  // A submission already exists (from this same timeout path on an
+  // earlier call, or from a user-submit that won a race against it) -
+  // delegate to `submitAttempt`'s own idempotent-replay path so a worker
+  // retry gets back the SAME real result every time, rather than an
+  // ambiguous `null` that would conflate "already done" with "not due
+  // yet". This is what makes "Worker retry tidak boleh membuat submit
+  // ganda" hold with a genuinely useful return value, not just an absence
+  // of a second row.
+  if (await findSubmissionByAttemptId(db, attemptId)) {
+    return submitAttempt(db, attemptId, { kind: "timeout" }, now);
+  }
+  if (attempt.status !== "in_progress") return null; // nothing this function can finalize (e.g. voided)
+  if (now.getTime() < attempt.lateSyncCutoffAt.getTime()) return null; // not due yet
+  return submitAttempt(db, attemptId, { kind: "timeout" }, now);
+}
+
+/** Read path for "Audit reconstruction" (required test): reconstructs what happened to an attempt's submission - who/what triggered it, at which revision, with which checksum - without ever touching `answer_states`/`answer_mutations`. */
+export async function getAttemptAuditTrail(
+  db: Queryable<Schema>,
+  attemptId: string,
+): Promise<readonly AttemptAuditEventRow[]> {
+  return listAuditEventsForAttempt(db, attemptId);
 }
