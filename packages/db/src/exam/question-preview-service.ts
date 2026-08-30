@@ -1,9 +1,9 @@
-// Student-facing question preview assembly (QST-003).
+// Student-facing question preview assembly (QST-003, extended ATM-001).
 //
 // dok 12 §29 "A06 — Manual Question Editor" section 8 ("Preview desktop/
 // mobile") and dok 12 §31 "A09 — Review Queue" ("Student preview di
 // tengah"): a moderator must see EXACTLY what a student would see before
-// approving. This module assembles that view by composing QST-001's own
+// approving. `assembleStudentFacingQuestionView` composes QST-001's own
 // read functions (question/stimulus/option/asset repositories) and its
 // EXISTING serializer, `toStudentFacingQuestionView` - it is the only
 // function in this file that ever touches `question_version_secrets`-
@@ -13,10 +13,18 @@
 // pakai toStudentFacingQuestionView" (founder instruction) is met by
 // construction - there is no second serializer here, only assembly of that
 // one function's input.
+//
+// `assembleStudentFacingQuestionView` is deliberately PERMISSION-AGNOSTIC
+// (ATM-001): it is now called from two different, differently-gated
+// callers - `buildQuestionPreview` below (admin, `question.draft.write`)
+// and `packages/db/src/exam/attempt/attempt-view.ts` (student, ownership-
+// gated, ATM-001) - both need the identical assembly, never two competing
+// implementations of "resolve a question version into student-safe
+// content."
 
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { toStudentFacingQuestionView, type StudentFacingQuestionView } from "@superlatif/domain/exam";
-import type { Schema } from "../db-types.ts";
+import type { Queryable, Schema } from "../db-types.ts";
 import {
   listAssetsForQuestionVersion,
   listAssetsForStimulusVersion,
@@ -46,19 +54,11 @@ function toPreviewAsset(asset: QuestionAssetRow) {
   };
 }
 
-/**
- * Requires `question.draft.write` - the broadest of the three question
- * permissions, granted to the creator, moderator/reviewer, and admin roles
- * alike (dok 12 A06's preview section belongs to the editor ANY of them can
- * open; A09's center-panel preview is the same read for a reviewer).
- */
-export async function buildQuestionPreview(
-  db: PgDatabase<PgQueryResultHKT, Schema>,
-  actorUserId: string,
+/** No permission check of its own - see module doc. Callers gate access their own way (admin permission vs. attempt ownership) before calling this. */
+export async function assembleStudentFacingQuestionView(
+  db: Queryable<Schema>,
   versionId: string,
 ): Promise<StudentFacingQuestionView> {
-  await assertQuestionPermission(db, actorUserId, "question.draft.write");
-
   const version = await findQuestionVersionById(db, versionId);
   if (!version) throw new QuestionVersionNotFoundForPreviewError(versionId);
 
@@ -98,4 +98,19 @@ export async function buildQuestionPreview(
     stimulus,
     assets: [...questionAssets, ...stimulusAssets].map(toPreviewAsset),
   });
+}
+
+/**
+ * Requires `question.draft.write` - the broadest of the three question
+ * permissions, granted to the creator, moderator/reviewer, and admin roles
+ * alike (dok 12 A06's preview section belongs to the editor ANY of them can
+ * open; A09's center-panel preview is the same read for a reviewer).
+ */
+export async function buildQuestionPreview(
+  db: PgDatabase<PgQueryResultHKT, Schema>,
+  actorUserId: string,
+  versionId: string,
+): Promise<StudentFacingQuestionView> {
+  await assertQuestionPermission(db, actorUserId, "question.draft.write");
+  return assembleStudentFacingQuestionView(db, versionId);
 }

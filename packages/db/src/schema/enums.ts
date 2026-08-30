@@ -148,3 +148,20 @@ export const batchWindowType = pgEnum("batch_window_type", [
   "explanation_release",
   "access_end",
 ]);
+
+// CLAUDE.md's canonical "Attempt states" vocabulary, transcribed verbatim
+// (ATM-001) - identical to dok 16 §4's own mermaid state diagram. Attempt
+// state stops at `scored`/`voided`; the separate, independently-versioned
+// Result lifecycle (`processing|provisional|final|corrected|withheld|
+// voided`, SCR-series, not built by this task) is never folded into this
+// enum - "Kegagalan worker adalah job/error state, bukan result state
+// siswa" (dok 16 §4) applies to attempt status the same way.
+export const attemptStatus = pgEnum("attempt_status", [
+  "created",
+  "in_progress",
+  "submitting",
+  "submitted",
+  "scoring",
+  "scored",
+  "voided",
+]);
