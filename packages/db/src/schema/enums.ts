@@ -123,3 +123,28 @@ export const questionType = pgEnum("question_type", [
 // `assertActivationScopeNotProduction` (@superlatif/domain/exam) refuses to
 // let any function in this task set this value to `production` at all.
 export const activationScope = pgEnum("activation_scope", ["draft_only", "staging", "production"]);
+
+// contracts/drizzle-schema.ts's batchWindowType, transcribed verbatim (all
+// 10 canonical values) so this enum never drifts from the reviewed Gate 3
+// reference (EXM-002). Only the 8 exam-side types (everything except
+// `catalogue`/`sale`) are ever written by this task's own service layer -
+// dok 18 §2 "Harga tidak berada di batch. Exam window tidak berada di
+// offer": catalogue/sale windows stay owned by COM-001's own
+// `offers.saleStartsAt`/`saleEndsAt`, never duplicated onto a batch. The two
+// commerce values are kept in the enum (not dropped) so the vocabulary
+// stays identical to the reviewed contract; @superlatif/domain/exam's
+// assertBatchWindowsCoherent explicitly rejects them with a message
+// pointing back at the offer they belong to, rather than silently
+// accepting and ignoring them.
+export const batchWindowType = pgEnum("batch_window_type", [
+  "catalogue",
+  "sale",
+  "registration",
+  "attempt",
+  "late_sync_cutoff",
+  "provisional_result_release",
+  "final_result_release",
+  "leaderboard_release",
+  "explanation_release",
+  "access_end",
+]);

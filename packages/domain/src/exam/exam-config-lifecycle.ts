@@ -14,7 +14,14 @@ import {
   type RecordStatus,
 } from "./question-lifecycle.ts";
 
-export type ExamConfigArtifactKind = "blueprint_version" | "scoring_policy_version" | "exam_form_version";
+// `"exam_batch"` (EXM-002) reuses this same generic lock point unchanged -
+// a batch's own `windows` become immutable the instant its `status` reaches
+// "approved" (the same point blueprint/scoring/form already lock at), which
+// is what makes "Changing offer windows tidak boleh mengubah attempt/batch
+// history" hold structurally: an approved-or-later batch's window set can
+// never be edited in place.
+export type ExamConfigArtifactKind =
+  "blueprint_version" | "scoring_policy_version" | "exam_form_version" | "exam_batch";
 
 export const isExamConfigVersionLocked = isQuestionVersionLocked;
 export const assertValidExamConfigStatusTransition = assertValidQuestionStatusTransition;

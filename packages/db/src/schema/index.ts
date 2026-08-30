@@ -1,5 +1,6 @@
 export {
   activationScope,
+  batchWindowType,
   grantEventType,
   liveSessionStatus,
   purchaseState,
@@ -68,3 +69,4 @@ export {
   scoringPolicyVersions,
   scoringPolicies,
 } from "./exam-config.ts";
+export { batchWindows, examBatches } from "./exam-batches.ts";

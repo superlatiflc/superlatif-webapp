@@ -113,6 +113,13 @@
       "when": 1788076926542,
       "tag": "0015_redundant_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788091164228,
+      "tag": "0016_early_black_bolt",
+      "breakpoints": true
     }
   ]
 }
