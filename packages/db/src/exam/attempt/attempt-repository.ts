@@ -78,6 +78,18 @@ export async function countActiveAttemptsForUserBatch(
   return row ? 1 : 0;
 }
 
+/** Every non-voided attempt for a batch (SCR-003's own "Ranking input population is explicit" starting point) - `attempts_user_batch_active_uq` (this file's own module doc) already guarantees at most ONE such row per user, so there is no "which of several attempts counts" selection left for the batch's own `ranking_attempt_rule` to actually resolve in this codebase's current MVP; the rule is still read and carried for forward-compatible traceability (see ranking-service.ts). */
+export async function listAttemptsForBatch(
+  db: Queryable<Schema>,
+  batchId: string,
+): Promise<readonly AttemptRow[]> {
+  const rows = await db
+    .select(ATTEMPT_COLUMNS)
+    .from(attempts)
+    .where(and(eq(attempts.batchId, batchId), ne(attempts.status, "voided")));
+  return rows as AttemptRow[];
+}
+
 export async function findAttemptByUserAndIdempotencyKey(
   db: Queryable<Schema>,
   userId: string,

@@ -155,6 +155,13 @@
       "when": 1788157652472,
       "tag": "0021_workable_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788166324355,
+      "tag": "0022_last_terrax",
+      "breakpoints": true
     }
   ]
 }
