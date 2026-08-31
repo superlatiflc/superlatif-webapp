@@ -75,3 +75,4 @@ export { attemptQuestionInstances, attemptWriterLeases, attempts } from "./attem
 export { answerMutations, answerStates } from "./answers.ts";
 export { attemptAuditEvents, attemptSubmissions, scoringJobOutbox } from "./submissions.ts";
 export { resultVersions } from "./results.ts";
+export { correctionCases, correctionDecisions } from "./corrections.ts";

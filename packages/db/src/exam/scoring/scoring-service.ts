@@ -32,7 +32,10 @@ import {
 } from "@superlatif/domain/exam";
 import type { Queryable, Schema } from "../../db-types.ts";
 import { AttemptNotFoundError, findAttemptById } from "../attempt/attempt-repository.ts";
-import { findSubmissionByAttemptId } from "../attempt/attempt-submission-repository.ts";
+import {
+  findSubmissionByAttemptId,
+  type AttemptSubmissionRow,
+} from "../attempt/attempt-submission-repository.ts";
 import { listAnswerStatesForAttempt } from "../attempt/answer-state-repository.ts";
 import { listPresentedInstances } from "../attempt/attempt-question-instance-repository.ts";
 import {
@@ -103,34 +106,34 @@ function computeInputChecksum(input: {
   return computeChecksum(input as unknown as JsonValue);
 }
 
+export interface ComputedScorePayload {
+  readonly scores: Record<string, unknown>;
+  readonly evaluation: Record<string, unknown>;
+  readonly totalScore: number;
+  readonly overallPassed: boolean | null;
+  readonly scoringEngineVersion: string;
+  readonly inputChecksum: string;
+}
+
 /**
- * Computes and persists the (first, and in this task's scope ONLY)
- * result version for an attempt's submission. Idempotent: a second call
- * for an attempt that already has a current result returns that SAME
- * row, never recomputing or duplicating - this is what makes "Recompute
- * equality" hold at the service layer, mirroring the pure
- * `computeScore`'s own determinism at the domain layer.
+ * The shared core both `scoreSubmission` (always the attempt's own pinned
+ * policy) and SCR-002's `decideResultCorrection` (an explicitly-approved,
+ * DIFFERENT policy version) call - "what did the student get right, and
+ * what is that worth" against WHATEVER `scoringPolicyVersionId` the
+ * caller supplies. The answer-snapshot integrity check (re-verify against
+ * the pinned submission checksum) always runs regardless of which policy
+ * is used - it is about the ANSWER data never having drifted since
+ * submit, not about the scoring formula, so a correction gets the exact
+ * same integrity guarantee the original score did.
  */
-export async function scoreSubmission(
+export async function computeScorePayload(
   db: Queryable<Schema>,
   attemptId: string,
-  now: Date,
-): Promise<ResultVersionRow> {
-  const existing = await findCurrentResultByAttemptId(db, attemptId);
-  if (existing) return existing;
-
-  const attempt = await findAttemptById(db, attemptId);
-  if (!attempt) throw new AttemptNotFoundError(attemptId);
-
-  const submission = await findSubmissionByAttemptId(db, attemptId);
-  if (!submission) throw new ScoringSubmissionNotFoundError(attemptId);
-
-  const scoringPolicyVersion = await findScoringPolicyVersionById(db, attempt.scoringPolicyVersionId);
-  if (!scoringPolicyVersion) throw new ScoringPolicyVersionNotFoundError(attempt.scoringPolicyVersionId);
-  // The PINNED version (attempt.scoringPolicyVersionId, set once at start
-  // - ATM-001) is dereferenced directly, never "the current published
-  // version for this batch/family" - this is the entire mechanism behind
-  // "Recompute stays pinned to snapshot policy" (required test).
+  submission: AttemptSubmissionRow,
+  scoringPolicyVersionId: string,
+): Promise<ComputedScorePayload> {
+  const scoringPolicyVersion = await findScoringPolicyVersionById(db, scoringPolicyVersionId);
+  if (!scoringPolicyVersion) throw new ScoringPolicyVersionNotFoundError(scoringPolicyVersionId);
   const policy = scoringPolicyVersion.policyConfig as unknown as ScoringPolicyConfig;
 
   const answerStates = await listAnswerStatesForAttempt(db, attemptId);
@@ -175,17 +178,11 @@ export async function scoreSubmission(
   const inputChecksum = computeInputChecksum({
     submissionId: submission.id,
     answerSetChecksum: submission.answerSetChecksum,
-    scoringPolicyVersionId: attempt.scoringPolicyVersionId,
+    scoringPolicyVersionId,
     scoringEngineVersion: SCORING_ENGINE_VERSION,
   });
 
-  return insertResultVersion(db, {
-    attemptId,
-    submissionId: submission.id,
-    scoringPolicyVersionId: attempt.scoringPolicyVersionId,
-    version: 1,
-    isCurrent: true,
-    state: "provisional",
+  return {
     scores: {
       sectionScores: computation.sectionScores,
       sectionMaxScores: computation.sectionMaxScores,
@@ -197,6 +194,45 @@ export async function scoreSubmission(
     overallPassed: computation.overallPassed,
     scoringEngineVersion: SCORING_ENGINE_VERSION,
     inputChecksum,
+  };
+}
+
+/**
+ * Computes and persists the (first, and in this task's scope ONLY)
+ * result version for an attempt's submission. Idempotent: a second call
+ * for an attempt that already has a current result returns that SAME
+ * row, never recomputing or duplicating - this is what makes "Recompute
+ * equality" hold at the service layer, mirroring the pure
+ * `computeScore`'s own determinism at the domain layer.
+ */
+export async function scoreSubmission(
+  db: Queryable<Schema>,
+  attemptId: string,
+  now: Date,
+): Promise<ResultVersionRow> {
+  const existing = await findCurrentResultByAttemptId(db, attemptId);
+  if (existing) return existing;
+
+  const attempt = await findAttemptById(db, attemptId);
+  if (!attempt) throw new AttemptNotFoundError(attemptId);
+
+  const submission = await findSubmissionByAttemptId(db, attemptId);
+  if (!submission) throw new ScoringSubmissionNotFoundError(attemptId);
+
+  // The PINNED version (attempt.scoringPolicyVersionId, set once at start
+  // - ATM-001) is dereferenced directly, never "the current published
+  // version for this batch/family" - this is the entire mechanism behind
+  // "Recompute stays pinned to snapshot policy" (required test).
+  const payload = await computeScorePayload(db, attemptId, submission, attempt.scoringPolicyVersionId);
+
+  return insertResultVersion(db, {
+    attemptId,
+    submissionId: submission.id,
+    scoringPolicyVersionId: attempt.scoringPolicyVersionId,
+    version: 1,
+    isCurrent: true,
+    state: "provisional",
+    ...payload,
     computedAt: now,
   });
 }

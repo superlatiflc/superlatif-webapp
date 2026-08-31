@@ -10,7 +10,7 @@
 // weaker (ATM-001-style) race tolerance here rather than ATM-003's own
 // catch-and-refetch pattern.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Queryable, Schema } from "../../db-types.ts";
 import { resultVersions } from "../../schema/index.ts";
 
@@ -87,4 +87,42 @@ export async function insertResultVersion(
   const [row] = await db.insert(resultVersions).values(input).returning(RESULT_VERSION_COLUMNS);
   if (!row) throw new Error("insertResultVersion: insert returned no row");
   return row as ResultVersionRow;
+}
+
+export async function findResultVersionById(
+  db: Queryable<Schema>,
+  resultVersionId: string,
+): Promise<ResultVersionRow | null> {
+  const [row] = await db
+    .select(RESULT_VERSION_COLUMNS)
+    .from(resultVersions)
+    .where(eq(resultVersions.id, resultVersionId))
+    .limit(1);
+  return (row as ResultVersionRow | undefined) ?? null;
+}
+
+/**
+ * Flips `is_current` to false (SCR-002's own correction workflow) - MUST
+ * run and commit before a replacement row with `is_current = true` is
+ * inserted for the same attempt, or the partial unique index
+ * `result_version_attempt_current_uq` refuses the insert; both statements
+ * belong in the SAME transaction (see result-correction-service.ts).
+ */
+export async function markResultVersionSuperseded(
+  db: Queryable<Schema>,
+  resultVersionId: string,
+): Promise<void> {
+  await db.update(resultVersions).set({ isCurrent: false }).where(eq(resultVersions.id, resultVersionId));
+}
+
+/** One-time, idempotent write recording when a result was first observed released (see result-release-service.ts) - informational only, never the access-control gate itself (see result-lifecycle.ts's own module doc). */
+export async function markResultVersionReleased(
+  db: Queryable<Schema>,
+  resultVersionId: string,
+  releasedAt: Date,
+): Promise<void> {
+  await db
+    .update(resultVersions)
+    .set({ releasedAt })
+    .where(and(eq(resultVersions.id, resultVersionId), isNull(resultVersions.releasedAt)));
 }
