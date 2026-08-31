@@ -407,6 +407,443 @@ code {
   opacity: 0.7;
 }
 
+/* --- Visually hidden utility (screen-reader-only content) --- */
+
+.slf-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Batch card (dok 12 S07) --- */
+
+.slf-batch-card {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-md);
+  box-shadow: var(--slf-elevation-1);
+  padding: var(--slf-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-3);
+}
+
+@media (min-width: 768px) {
+  .slf-batch-card {
+    padding: var(--slf-space-6);
+  }
+}
+
+.slf-batch-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--slf-space-3);
+}
+
+.slf-batch-card__family {
+  margin: 0 0 var(--slf-space-1);
+  font-size: var(--slf-type-label-sm-size);
+  line-height: var(--slf-type-label-sm-line);
+  color: var(--slf-neutral-600);
+  text-transform: uppercase;
+}
+
+.slf-batch-card__title {
+  margin: 0;
+  font-size: var(--slf-type-heading-sm-size);
+  line-height: var(--slf-type-heading-sm-line);
+  font-weight: var(--slf-type-heading-sm-weight);
+}
+
+.slf-batch-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--slf-space-3);
+  margin: 0;
+}
+
+.slf-batch-card__meta dt {
+  font-size: var(--slf-type-caption-size);
+  line-height: var(--slf-type-caption-line);
+  color: var(--slf-neutral-600);
+}
+
+.slf-batch-card__meta dd {
+  margin: 0;
+  font-size: var(--slf-type-body-sm-size);
+  line-height: var(--slf-type-body-sm-line);
+  font-weight: 600;
+}
+
+/* --- Countdown timer (dok 12 E03/E04) --- */
+
+.slf-countdown-timer {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--slf-touch-target-min);
+  padding: var(--slf-space-1) var(--slf-space-4);
+  border-radius: var(--slf-radius-full);
+  background: var(--slf-surface-subtle);
+  color: var(--slf-neutral-950);
+  font-family: var(--slf-font-mono);
+  font-size: var(--slf-type-heading-sm-size);
+  font-weight: 700;
+  border: 1px solid var(--slf-border-default);
+}
+
+.slf-countdown-timer--warning {
+  background: var(--slf-warning-surface);
+  color: var(--slf-warning-strong);
+  border-color: var(--slf-warning-border);
+}
+
+.slf-countdown-timer--expired {
+  background: var(--slf-danger-surface);
+  color: var(--slf-danger-strong);
+  border-color: var(--slf-danger-border);
+}
+
+/* --- Answerable question (dok 12 E03/E04) - extends slf-question-preview__* --- */
+
+.slf-answerable-question {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-4);
+}
+
+.slf-answerable-question__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--slf-space-3);
+}
+
+.slf-answerable-question__option {
+  cursor: pointer;
+}
+
+.slf-answerable-question__option:has(input:checked) {
+  border-color: var(--slf-brand-700);
+  background: var(--slf-surface-brand);
+}
+
+.slf-flag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--slf-space-1);
+  min-height: var(--slf-touch-target-min);
+  padding: var(--slf-space-1) var(--slf-space-3);
+  border-radius: var(--slf-radius-sm);
+  border: 1px solid var(--slf-border-strong);
+  background: transparent;
+  color: var(--slf-neutral-700);
+  font-size: var(--slf-type-label-sm-size);
+  cursor: pointer;
+}
+
+.slf-flag-toggle--active {
+  background: var(--slf-warning-surface);
+  border-color: var(--slf-warning-border);
+  color: var(--slf-warning-strong);
+}
+
+/* --- Question navigator (mobile sheet, dok 12 E03/E04) --- */
+
+.slf-question-navigator {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--slf-space-2);
+}
+
+.slf-question-navigator__item {
+  min-width: var(--slf-touch-target-min);
+  min-height: var(--slf-touch-target-min);
+  border-radius: var(--slf-radius-sm);
+  border: 1px solid var(--slf-border-default);
+  background: var(--slf-surface-default);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.slf-question-navigator__item--current {
+  border-color: var(--slf-brand-900);
+  outline: 2px solid var(--slf-brand-900);
+  outline-offset: 1px;
+}
+
+.slf-question-navigator__item--answered {
+  background: var(--slf-success-surface);
+  border-color: var(--slf-success-border);
+  color: var(--slf-success-strong);
+}
+
+.slf-question-navigator__item--flagged::after {
+  content: "🚩";
+  display: block;
+  font-size: 0.6em;
+}
+
+/* --- Sticky player footer (mobile) --- */
+
+.slf-player-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--slf-surface-default);
+  border-top: 1px solid var(--slf-border-default);
+  padding: var(--slf-space-3) var(--slf-layout-gutter-mobile);
+  display: flex;
+  gap: var(--slf-space-2);
+  justify-content: space-between;
+}
+
+/* --- Result score card (dok 12 S11/S12) --- */
+
+.slf-result-card {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-3);
+}
+
+.slf-result-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--slf-space-2);
+}
+
+.slf-result-card__released {
+  margin: 0;
+  font-size: var(--slf-type-caption-size);
+  color: var(--slf-neutral-600);
+}
+
+.slf-result-card__total-label {
+  margin: 0;
+  font-size: var(--slf-type-body-sm-size);
+  color: var(--slf-neutral-600);
+}
+
+.slf-result-card__total {
+  margin: 0;
+  font-size: var(--slf-type-heading-xl-size);
+  line-height: var(--slf-type-heading-xl-line);
+  font-weight: var(--slf-type-heading-xl-weight);
+  color: var(--slf-brand-900);
+}
+
+.slf-result-card__target {
+  margin: 0;
+  font-size: var(--slf-type-body-sm-size);
+  color: var(--slf-neutral-700);
+}
+
+.slf-result-card__sections {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--slf-space-3);
+  margin: 0;
+  padding-top: var(--slf-space-3);
+  border-top: 1px solid var(--slf-border-default);
+}
+
+.slf-result-card__section dt {
+  font-size: var(--slf-type-label-sm-size);
+  color: var(--slf-neutral-600);
+}
+
+.slf-result-card__section dd {
+  margin: 0;
+  font-size: var(--slf-type-heading-sm-size);
+  font-weight: 700;
+}
+
+.slf-result-card__section-max {
+  font-size: var(--slf-type-body-sm-size);
+  font-weight: 400;
+  color: var(--slf-neutral-500);
+}
+
+/* --- Leaderboard (dok 12 S18): one semantic list, restyled by breakpoint. --- */
+
+.slf-leaderboard {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-2);
+}
+
+.slf-leaderboard__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "rank alias score" "rank alias percentile";
+  align-items: center;
+  gap: var(--slf-space-1) var(--slf-space-3);
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-md);
+  padding: var(--slf-space-3) var(--slf-space-4);
+}
+
+@media (min-width: 768px) {
+  .slf-leaderboard__row {
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-areas: "rank alias score percentile";
+  }
+}
+
+.slf-leaderboard__row--self {
+  border-color: var(--slf-brand-200);
+  background: var(--slf-surface-brand);
+}
+
+.slf-leaderboard__rank {
+  grid-area: rank;
+  font-family: var(--slf-font-mono);
+  font-weight: 700;
+  color: var(--slf-neutral-600);
+}
+
+.slf-leaderboard__alias {
+  grid-area: alias;
+  font-weight: 600;
+}
+
+.slf-leaderboard__you-tag {
+  color: var(--slf-brand-700);
+  font-weight: 700;
+}
+
+.slf-leaderboard__score {
+  grid-area: score;
+  font-weight: 700;
+  text-align: right;
+}
+
+.slf-leaderboard__score-label {
+  font-weight: 400;
+  color: var(--slf-neutral-500);
+  font-size: var(--slf-type-caption-size);
+}
+
+.slf-leaderboard__percentile {
+  grid-area: percentile;
+  font-size: var(--slf-type-caption-size);
+  color: var(--slf-neutral-600);
+  text-align: right;
+}
+
+/* --- Preview mobile bottom nav (dok 12 §3 global shell) --- */
+
+.slf-bottom-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-around;
+  background: var(--slf-surface-default);
+  border-top: 1px solid var(--slf-border-default);
+  padding: var(--slf-space-2) 0;
+}
+
+@media (min-width: 768px) {
+  .slf-bottom-nav {
+    display: none;
+  }
+}
+
+.slf-bottom-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: var(--slf-touch-target-min);
+  min-height: var(--slf-touch-target-min);
+  padding: var(--slf-space-1);
+  font-size: var(--slf-type-caption-size);
+  color: var(--slf-neutral-600);
+  text-decoration: none;
+}
+
+.slf-bottom-nav__item--active {
+  color: var(--slf-brand-900);
+  font-weight: 600;
+}
+
+/* --- Preview auth/onboarding form primitives --- */
+
+.slf-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-1);
+}
+
+.slf-form-field label {
+  font-size: var(--slf-type-label-md-size);
+  font-weight: var(--slf-type-label-md-weight);
+}
+
+.slf-form-field input {
+  min-height: var(--slf-touch-target-min);
+  padding: var(--slf-space-2) var(--slf-space-3);
+  border: 1px solid var(--slf-border-strong);
+  border-radius: var(--slf-radius-sm);
+  font-family: var(--slf-font-sans);
+  font-size: var(--slf-type-body-md-size);
+}
+
+.slf-form-field input:focus-visible {
+  border-color: var(--slf-brand-900);
+}
+
+.slf-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--slf-space-1);
+  padding: var(--slf-space-1) var(--slf-space-3);
+  border-radius: var(--slf-radius-full);
+  background: var(--slf-info-surface);
+  color: var(--slf-info-strong);
+  border: 1px solid var(--slf-info-border);
+  font-size: var(--slf-type-label-sm-size);
+  width: fit-content;
+}
+
+.slf-onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-4);
+}
+
+.slf-onboarding-step {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-2);
+}
+
 /* --- Review page layout (dok 12 A09, QST-003): single column on mobile, two columns from tablet up. --- */
 
 .slf-review-page__layout {
