@@ -186,6 +186,80 @@ export const PREVIEW_BATCH_DETAIL: PreviewBatchDetail = {
   totalDurationSeconds: 6000, // 1h40m - matches durationLabel
 };
 
+// Post-submission review/pembahasan content - deliberately kept in a
+// SEPARATE export from PREVIEW_QUESTIONS (the attempt-time projection).
+// Nothing in the attempt player (AttemptPlayer.tsx) or AnswerableQuestion
+// imports QUESTION_REVIEW - only the /review page does, and only after a
+// learner has an "answers" query proving they actually submitted (see that
+// page's own gate). This mirrors the real domain boundary: ATM-001's
+// student-facing attempt view never carries an answer key; a review/
+// explanation projection would only ever run after submission, from a
+// completely different read path.
+//
+// `bestOptionCode` means two different things by section, on purpose:
+// - TWK (single_choice): the one objectively correct option.
+// - TKP (weighted_choice): the highest-weighted option in this mock's own
+//   synthetic scheme (TKP_OPTION_WEIGHTS) - NOT a claim that other options
+//   are "wrong". Real TKP has no single correct answer (dok 16 §8); every
+//   option is a valid response of differing quality. The review UI must
+//   say this explicitly for TKP items, never imply a false binary.
+export interface QuestionReviewContent {
+  readonly bestOptionCode: string;
+  readonly explanation: string;
+  readonly concept: string;
+  readonly mindsetTip: string;
+}
+
+export const QUESTION_REVIEW: Record<string, QuestionReviewContent> = {
+  "twk-1": {
+    bestOptionCode: "C",
+    explanation:
+      'Sila keempat Pancasila berbunyi "Kerakyatan yang dipimpin oleh hikmat kebijaksanaan dalam permusyawaratan/perwakilan" - inti sila ini adalah pengambilan keputusan lewat musyawarah untuk mufakat.',
+    concept: "Nilai-nilai Pancasila",
+    mindsetTip:
+      "Hafalkan bukan sekadar urutan sila, tapi juga maknanya - soal TWK sering menguji pemahaman, bukan hafalan urutan.",
+  },
+  "twk-2": {
+    bestOptionCode: "B",
+    explanation:
+      "Mahkamah Konstitusi (MK) berwenang menguji undang-undang terhadap UUD 1945 (judicial review), berbeda dari Mahkamah Agung yang menangani kasasi dan peninjauan kembali.",
+    concept: "Lembaga negara & sistem ketatanegaraan",
+    mindsetTip: "Bedakan kewenangan MK dan MA - ini salah satu jebakan paling sering muncul di TWK.",
+  },
+  "twk-3": {
+    bestOptionCode: "C",
+    explanation:
+      "Konferensi Meja Bundar (KMB) tahun 1949 mengakhiri konflik Indonesia-Belanda dan mengakui kedaulatan Indonesia, meski secara de facto Indonesia telah merdeka sejak 1945.",
+    concept: "Sejarah kemerdekaan Indonesia",
+    mindsetTip:
+      "Buat garis waktu sendiri untuk peristiwa 1945-1950 - urutan tahun adalah sumber salah paling umum.",
+  },
+  "tkp-1": {
+    bestOptionCode: "A",
+    explanation:
+      "Menyelesaikan masalah secara langsung dan kolaboratif paling selaras dengan nilai kerja sama dan profesionalisme yang diukur TKP.",
+    concept: "Kerja sama dan resolusi konflik",
+    mindsetTip:
+      'TKP bukan soal "benar-salah" seperti TWK - semua pilihan valid, tapi ada yang lebih mencerminkan sikap kerja profesional yang diharapkan.',
+  },
+  "tkp-2": {
+    bestOptionCode: "A",
+    explanation:
+      "Menunjukkan inisiatif dan kemauan belajar mandiri sebelum meminta bantuan paling selaras dengan karakter adaptif yang diukur TKP.",
+    concept: "Inisiatif dan adaptabilitas",
+    mindsetTip:
+      "Perhatikan kata kerja aktif di pilihan jawaban - biasanya itu menandakan sikap paling proaktif.",
+  },
+  "tkp-3": {
+    bestOptionCode: "A",
+    explanation:
+      "Komunikasi terbuka ke kedua pihak dan mencari solusi yang adil paling mencerminkan kematangan dalam mengelola prioritas.",
+    concept: "Manajemen prioritas dan komunikasi",
+    mindsetTip:
+      'Pilihan yang melibatkan komunikasi biasanya lebih "aman" dibanding pilihan yang menghindar atau diam-diam mengabaikan satu pihak.',
+  },
+};
+
 export function buildMockResult(
   totalScore: number,
   sectionScores: Record<string, number>,

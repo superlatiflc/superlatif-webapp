@@ -42,3 +42,9 @@ export {
   type LeaderboardRowData,
   type LeaderboardTableProps,
 } from "./components/LeaderboardTable.tsx";
+export {
+  QuestionReviewCard,
+  type QuestionReviewCardProps,
+  type QuestionReviewOption,
+  type QuestionReviewStatus,
+} from "./components/QuestionReviewCard.tsx";
