@@ -76,3 +76,4 @@ export { answerMutations, answerStates } from "./answers.ts";
 export { attemptAuditEvents, attemptSubmissions, scoringJobOutbox } from "./submissions.ts";
 export { resultVersions } from "./results.ts";
 export { correctionCases, correctionDecisions } from "./corrections.ts";
+export { rankingSubjects, rankingSnapshots, rankingEntries } from "./ranking.ts";
