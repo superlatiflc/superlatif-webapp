@@ -42,10 +42,16 @@ export function AttemptPlayer({ batchSlug, totalDurationSeconds }: AttemptPlayer
       answerSlots[question.instanceId] = selected ? { optionCode: selected } : null;
     }
     const { total, sectionScores } = computeMockScore(answerSlots);
+    // Carries the learner's actual per-question picks forward to the result
+    // and review pages - the ONLY way those pages learn what was answered,
+    // since nothing here is persisted server-side. See QUESTION_REVIEW's own
+    // module doc for why this stays separate from the attempt-time question
+    // projection.
     const query = new URLSearchParams({
       total: String(total),
       twk: String(sectionScores["TWK"] ?? 0),
       tkp: String(sectionScores["TKP"] ?? 0),
+      answers: JSON.stringify(answers),
     });
     router.push(`/preview/tryouts/${batchSlug}/result?${query.toString()}`);
   }

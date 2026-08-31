@@ -15,7 +15,12 @@ export const metadata: Metadata = {
 
 interface PageProps {
   readonly params: Promise<{ readonly batchSlug: string }>;
-  readonly searchParams: Promise<{ readonly total?: string; readonly twk?: string; readonly tkp?: string }>;
+  readonly searchParams: Promise<{
+    readonly total?: string;
+    readonly twk?: string;
+    readonly tkp?: string;
+    readonly answers?: string;
+  }>;
 }
 
 export default async function PreviewResultPage({ params, searchParams }: PageProps) {
@@ -26,6 +31,16 @@ export default async function PreviewResultPage({ params, searchParams }: PagePr
   const tkp = query.tkp ? Number(query.tkp) : 26;
 
   const result = buildMockResult(total, { TWK: twk, TKP: tkp });
+
+  // The review/pembahasan page only renders the answer key when it has real
+  // per-question evidence (`answers`) that this attempt was actually
+  // submitted - forwarding it here is what makes "Lihat Pembahasan" work
+  // for a learner who just finished; a direct/bookmarked visit to this page
+  // has no `answers` to forward, so that link correctly falls back to the
+  // review page's own "belum tersedia" gate instead of a stale answer key.
+  const reviewHref = query.answers
+    ? `/preview/tryouts/${batchSlug}/review?total=${total}&twk=${twk}&tkp=${tkp}&answers=${encodeURIComponent(query.answers)}`
+    : `/preview/tryouts/${batchSlug}/review`;
 
   return (
     <main className="slf-page">
@@ -58,14 +73,17 @@ export default async function PreviewResultPage({ params, searchParams }: PagePr
       />
 
       <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-        <a className="slf-button slf-button--secondary" href={`/preview/tryouts/${batchSlug}`}>
-          Lihat detail tryout
+        <a className="slf-button slf-button--primary" href={reviewHref}>
+          Lihat Pembahasan
         </a>
         <a
-          className="slf-button slf-button--primary"
+          className="slf-button slf-button--secondary"
           href={`/preview/tryouts/${batchSlug}/leaderboard?total=${total}&twk=${twk}&tkp=${tkp}`}
         >
           Lihat peringkat
+        </a>
+        <a className="slf-button slf-button--secondary" href={`/preview/tryouts/${batchSlug}`}>
+          Lihat detail tryout
         </a>
       </div>
     </main>

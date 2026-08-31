@@ -844,6 +844,153 @@ code {
   gap: var(--slf-space-2);
 }
 
+/* --- Tryout pembahasan/review filter bar --- */
+
+.slf-review-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--slf-space-2);
+}
+
+.slf-review-filter-bar__button {
+  min-height: var(--slf-touch-target-min);
+  padding: var(--slf-space-1) var(--slf-space-4);
+  border-radius: var(--slf-radius-full);
+  border: 1px solid var(--slf-border-strong);
+  background: var(--slf-surface-default);
+  color: var(--slf-neutral-700);
+  font-size: var(--slf-type-label-sm-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.slf-review-filter-bar__button--active {
+  background: var(--slf-brand-900);
+  border-color: var(--slf-brand-900);
+  color: var(--slf-white);
+}
+
+.slf-review-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--slf-space-2);
+}
+
+/* --- Question review/pembahasan card (post-submission only) --- */
+
+.slf-question-review-card {
+  background: var(--slf-surface-default);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-lg);
+  padding: var(--slf-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-4);
+}
+
+.slf-question-review-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--slf-space-3);
+  flex-wrap: wrap;
+}
+
+.slf-question-review-card__options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--slf-space-2);
+}
+
+.slf-question-review-card__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--slf-space-2);
+  padding: var(--slf-space-3);
+  border: 1px solid var(--slf-border-default);
+  border-radius: var(--slf-radius-md);
+}
+
+.slf-question-review-card__option--best {
+  border-color: var(--slf-success-border);
+  background: var(--slf-success-surface);
+}
+
+.slf-question-review-card__option--selected {
+  border-color: var(--slf-brand-700);
+  outline: 2px solid var(--slf-brand-700);
+  outline-offset: -1px;
+}
+
+.slf-question-review-card__option-tags {
+  display: flex;
+  gap: var(--slf-space-1);
+  flex-shrink: 0;
+}
+
+.slf-question-review-card__section h4 {
+  margin: 0 0 var(--slf-space-1);
+  font-size: var(--slf-type-label-md-size);
+  font-weight: var(--slf-type-label-md-weight);
+}
+
+.slf-question-review-card__section p {
+  margin: 0;
+  font-size: var(--slf-type-body-sm-size);
+  line-height: var(--slf-type-body-sm-line);
+  color: var(--slf-neutral-700);
+}
+
+.slf-question-review-card__note {
+  margin-top: var(--slf-space-1) !important;
+  font-style: italic;
+  color: var(--slf-neutral-600) !important;
+}
+
+.slf-review-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--slf-space-2);
+  border-radius: var(--slf-radius-sm);
+  background: var(--slf-surface-subtle);
+  border: 1px solid var(--slf-border-default);
+  font-size: var(--slf-type-caption-size);
+  font-weight: 600;
+  color: var(--slf-neutral-700);
+  width: fit-content;
+}
+
+.slf-review-tag--best {
+  background: var(--slf-success-surface);
+  border-color: var(--slf-success-border);
+  color: var(--slf-success-strong);
+}
+
+.slf-mindset-tip {
+  background: var(--slf-surface-brand);
+  border: 1px solid var(--slf-brand-200);
+  border-radius: var(--slf-radius-md);
+  padding: var(--slf-space-3) var(--slf-space-4);
+}
+
+.slf-mindset-tip__label {
+  margin: 0 0 var(--slf-space-1);
+  font-size: var(--slf-type-caption-size);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--slf-brand-900);
+}
+
+.slf-mindset-tip p:last-child {
+  margin: 0;
+  font-size: var(--slf-type-body-sm-size);
+  color: var(--slf-neutral-950);
+}
+
 /* --- Review page layout (dok 12 A09, QST-003): single column on mobile, two columns from tablet up. --- */
 
 .slf-review-page__layout {
