@@ -74,3 +74,4 @@ export { batchWindows, examBatches } from "./exam-batches.ts";
 export { attemptQuestionInstances, attemptWriterLeases, attempts } from "./attempts.ts";
 export { answerMutations, answerStates } from "./answers.ts";
 export { attemptAuditEvents, attemptSubmissions, scoringJobOutbox } from "./submissions.ts";
+export { resultVersions } from "./results.ts";
