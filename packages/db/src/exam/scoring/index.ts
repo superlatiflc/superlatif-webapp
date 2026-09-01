@@ -7,6 +7,7 @@ export * from "./scoring-service.ts";
 export * from "./correction-repository.ts";
 export * from "./result-correction-service.ts";
 export * from "./result-release-service.ts";
+export * from "./attempt-review-service.ts";
 export * from "./ranking-subject-repository.ts";
 export * from "./ranking-repository.ts";
 export * from "./ranking-service.ts";
