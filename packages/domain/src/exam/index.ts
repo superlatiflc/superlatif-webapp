@@ -42,6 +42,8 @@ export * from "./submission-lifecycle.ts";
 export * from "./answer-set-checksum.ts";
 export * from "./score-calculation.ts";
 export * from "./answer-grading.ts";
+export * from "./answer-review.ts";
 export * from "./result-lifecycle.ts";
+export * from "./explanation-visibility.ts";
 export * from "./result-correction.ts";
 export * from "./ranking.ts";
