@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createInMemoryEffectiveAccessCache, type EffectiveAccessCache } from "@superlatif/domain/access";
 import { createUser } from "../identity/repository.ts";
 import { createTestDatabase, type TestDatabaseHandle } from "../test-client.ts";
+import { accessGrants } from "../schema/index.ts";
 import { createPolicyDraft, publishPolicyVersion } from "./policy-repository.ts";
 import { issueGrant, recordGrantEvent } from "./grant-repository.ts";
 import { getEffectiveAccess, issueGrantAndInvalidate } from "./effective-access-service.ts";
@@ -185,7 +186,37 @@ describe("required negative test: no access widening", () => {
 });
 
 describe("required test: deterministic output ordering", () => {
-  it("decisiveGrantIds is in the same order across repeated rebuilds, for three overlapping grants from three different sources", async () => {
+  /**
+   * ROOT CAUSE of the pre-existing flake this test replaces (see the git
+   * history for the version that asserted `decisiveGrantIds` equals
+   * `[first.id, second.id, third.id]`): `listGrantsForUser` orders by
+   * `asc(createdAt), asc(id)` (grant-repository.ts) - `createdAt` is
+   * server-assigned (`defaultNow()`), never supplied by the caller, so
+   * three grants issued in rapid succession can legitimately receive the
+   * IDENTICAL `createdAt` (confirmed empirically: pglite's clock has only
+   * millisecond resolution, and three consecutive `now()` calls in this
+   * same test environment landed on the same millisecond). When that
+   * happens, the tiebreak falls to `id` - a random UUID with no
+   * relationship to issuance sequence - so the resulting order need not
+   * match the literal order the test's `issueGrant` calls were awaited in.
+   *
+   * That is NOT a production nondeterminism bug: given a fixed, already-
+   * committed set of grant rows, `ORDER BY asc(createdAt), asc(id)` is a
+   * total order over a unique key (`id`), so repeated reads of the SAME
+   * data always agree with each other - which is the actual invariant
+   * `compareEffectiveAccessDecisions`/`sameGrantSet` (entitlement-drift.ts)
+   * requires, and it compares as a SET (sorts before comparing), never by
+   * position. "Same order as the literal `issueGrant` call sequence" was
+   * never a real guarantee this ORDER BY makes when timestamps tie, and
+   * asserting it was the test's own bug, not the implementation's.
+   *
+   * This test proves the invariant that actually matters: the exact SET of
+   * decisive grants is correct, and every repeated/concurrent rebuild of
+   * the same data agrees on the SAME order as every other rebuild -
+   * whatever that order is - rather than hardcoding an order that assumes
+   * `createdAt` never ties.
+   */
+  it("decisiveGrantIds is the same set, in the same order, across repeated rebuilds, for three overlapping grants from three different sources", async () => {
     const studentId = await makeStudent("wp-ordering@example.test");
     const first = await issueGrant(handle.db, {
       userId: studentId,
@@ -214,11 +245,69 @@ describe("required test: deterministic output ordering", () => {
       validFrom: NOW,
       validTo: null,
     });
+    const expectedIds = new Set([first.id, second.id, third.id]);
+
+    const [firstRun, ...laterRuns] = await Promise.all(
+      Array.from({ length: 5 }, () => rebuildEffectiveAccess(handle.db, studentId, QUERY, LATER)),
+    );
+    if (!firstRun) throw new Error("expected at least one rebuild result");
+
+    expect(firstRun.allowed).toBe(true);
+    expect(new Set(firstRun.decisiveGrantIds)).toEqual(expectedIds);
+    expect(firstRun.decisiveGrantIds).toHaveLength(3);
+
+    // Determinism: every OTHER concurrent rebuild of the identical,
+    // already-committed data must report the EXACT SAME order as the
+    // first - not just the same set - regardless of what that order
+    // happens to be.
+    for (const decision of laterRuns) {
+      expect(decision.allowed).toBe(true);
+      expect(decision.decisiveGrantIds).toEqual(firstRun.decisiveGrantIds);
+    }
+  });
+
+  /**
+   * The scenario the test above cannot reliably force (createdAt ties are
+   * incidental, load-dependent timing) - this one constructs it directly,
+   * inserting three grant rows with an EXPLICIT, IDENTICAL `createdAt` via
+   * the schema (bypassing `issueGrant`, which never exposes `createdAt` as
+   * an input - see grant-repository.ts). Proves the exact property
+   * instruction #7 asks for: ordering stays deterministic (repeatable
+   * across concurrent rebuilds) even when timestamps are equal, and ties
+   * resolve via the documented `asc(id)` fallback (grant-repository.ts's
+   * own `listGrantsForUser` ORDER BY) - never by physical insertion/storage
+   * order, which `entitlement-rebuild-service.ts`'s own module doc already
+   * flags as the exact class of accidental nondeterminism this ORDER BY
+   * exists to prevent.
+   */
+  it("resolves a createdAt tie via a stable id-ascending order, identically across repeated rebuilds", async () => {
+    const studentId = await makeStudent("wp-ordering-tie@example.test");
+    const tiedCreatedAt = new Date("2026-08-20T00:00:00.000Z");
+
+    const rows = await handle.db
+      .insert(accessGrants)
+      .values(
+        ["purchase-tie-1", "purchase-tie-2", "purchase-tie-3"].map((sourceId) => ({
+          userId: studentId,
+          sourceType: "purchase",
+          sourceId,
+          sourceKey: `${sourceId}:program`,
+          accessPolicyId: policyId,
+          validFrom: NOW,
+          validTo: null,
+          createdAt: tiedCreatedAt,
+        })),
+      )
+      .returning({ id: accessGrants.id, createdAt: accessGrants.createdAt });
+
+    // Confirm the fixture actually constructed a tie, not a coincidentally-ordered set.
+    expect(new Set(rows.map((row) => row.createdAt.getTime()))).toEqual(new Set([tiedCreatedAt.getTime()]));
+
+    const expectedOrder = [...rows.map((row) => row.id)].sort();
 
     const runs = await Promise.all(
       Array.from({ length: 5 }, () => rebuildEffectiveAccess(handle.db, studentId, QUERY, LATER)),
     );
-    const expectedOrder = [first.id, second.id, third.id];
     for (const decision of runs) {
       expect(decision.allowed).toBe(true);
       expect(decision.decisiveGrantIds).toEqual(expectedOrder);
