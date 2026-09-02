@@ -2,47 +2,35 @@ import type { Metadata } from "next";
 import { program as programService } from "@superlatif/db";
 import { EmptyState, NextActionCard, ProgramCard } from "@superlatif/ui";
 import { getDb, getEffectiveAccessCache } from "../../lib/db.ts";
-import { getSessionUserId } from "../../lib/session.ts";
+import { requireUserIdOrRedirect } from "../../lib/session.ts";
 
 // dok 07 §4 "Struktur Beranda" / dok 09 §8.1. Server Component: the view
 // model is built once, server-side, from @superlatif/db/program's
 // buildHomeViewModel (ENT-002 resolver + IDN-004 authorize() underneath -
 // this route invents no access rule of its own).
 //
-// IDENTITY RESOLUTION, READ BEFORE CHANGING: the real session cookie
-// (lib/session.ts, built for the production tryout flow) is now checked
-// FIRST - this is exactly the transition ADR-052 itself anticipated
-// ("changing how the user is IDENTIFIED here later (real cookies) does not
-// change how access is DECIDED"). The `?userId=...` query string stays as
-// a fallback, unchanged, still explicitly a development/demo seam and
-// still not an authorization control - so a direct link using the old seam
-// keeps working. The actual authorization happens entirely inside
-// buildHomeViewModel/assertProgramAccess via authorize()+effective access,
-// exactly as before; only the source of `userId` changed.
+// IDENTITY RESOLUTION - DO NOT REINTRODUCE A QUERY-STRING SEAM. The acting
+// user comes ONLY from the server-side session cookie
+// (`requireUserIdOrRedirect`, lib/session.ts). The `?userId=` dev seam this
+// route carried from ADR-052 was removed as P0-1 of the production
+// readiness audit: it was an authentication bypass, not merely a stub -
+// an anonymous request with `?userId=<victim>` rendered that victim's
+// dashboard, reproduced live on the deployed staging URL. Authorization
+// was never the broken part (buildHomeViewModel/assertProgramAccess decide
+// correctly); the app was faithfully authorizing a CLAIMED identity, and
+// user UUIDs are not secrets. Identity must come from a credential the
+// caller cannot forge - here, the session cookie whose secret is stored
+// only as a hash server-side (IDN-001).
+//
+// `apps/web/src/app/no-query-identity.test.ts` fails the build if a
+// production route reintroduces `userId` as a search param.
 
 export const metadata: Metadata = {
   title: "Beranda | Superlatif",
 };
 
-interface HomePageProps {
-  readonly searchParams: Promise<{ readonly userId?: string }>;
-}
-
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const { userId: queryUserId } = await searchParams;
-  const sessionUserId = await getSessionUserId();
-  const userId = sessionUserId ?? queryUserId;
-
-  if (!userId) {
-    return (
-      <main className="slf-page">
-        <EmptyState
-          title="Belum ada sesi aktif"
-          body="Halaman ini memuat Program Saya berdasarkan akun yang masuk. Autentikasi sesi/cookie belum dibangun pada task ini - tambahkan ?userId=... pada URL untuk mode pengembangan."
-        />
-      </main>
-    );
-  }
+export default async function HomePage() {
+  const userId = await requireUserIdOrRedirect();
 
   let model: Awaited<ReturnType<typeof programService.buildHomeViewModel>>;
   try {

@@ -2,7 +2,20 @@ import type { Metadata } from "next";
 import { program as programService } from "@superlatif/db";
 import { EmptyState } from "@superlatif/ui";
 import { getDb, getEffectiveAccessCache } from "../../../lib/db.ts";
+import { requireUserIdOrRedirect } from "../../../lib/session.ts";
 
+// IDENTITY RESOLUTION - DO NOT REINTRODUCE A QUERY-STRING SEAM. The acting
+// user comes ONLY from the server-side session cookie
+// (`requireUserIdOrRedirect`, lib/session.ts). The `?userId=` dev seam this
+// route carried from ADR-052 was removed as P0-1 of the production
+// readiness audit: it let an anonymous caller evaluate program access as
+// any user whose UUID they knew. `assertProgramAccess` below is unchanged
+// and still the only thing that DECIDES access - the fix is that it can no
+// longer be handed a forged identity to decide about.
+//
+// `apps/web/src/app/no-query-identity.test.ts` fails the build if a
+// production route reintroduces `userId` as a search param.
+//
 // Minimal program-access confirmation stub (PRG-001). This is NOT the
 // Program Hub dok 07 §6 specifies (Roadmap/Jadwal/Tryout/Materi/Komunitas/
 // Progres tabs) - "Jangan bangun seluruh LMS dulu" (founder instruction),
@@ -22,7 +35,6 @@ export const metadata: Metadata = {
 
 interface ProgramPageProps {
   readonly params: Promise<{ readonly programCode: string }>;
-  readonly searchParams: Promise<{ readonly userId?: string }>;
 }
 
 const DENIAL_COPY: Record<string, { readonly title: string; readonly body: string }> = {
@@ -36,20 +48,9 @@ const DENIAL_COPY: Record<string, { readonly title: string; readonly body: strin
   },
 };
 
-export default async function ProgramPage({ params, searchParams }: ProgramPageProps) {
+export default async function ProgramPage({ params }: ProgramPageProps) {
   const { programCode } = await params;
-  const { userId } = await searchParams;
-
-  if (!userId) {
-    return (
-      <main className="slf-page">
-        <EmptyState
-          title="Belum ada sesi aktif"
-          body="Autentikasi sesi/cookie belum dibangun pada task ini - tambahkan ?userId=... pada URL untuk mode pengembangan."
-        />
-      </main>
-    );
-  }
+  const userId = await requireUserIdOrRedirect();
 
   let decision: Awaited<ReturnType<typeof programService.assertProgramAccess>>;
   try {
