@@ -13,7 +13,12 @@ export default defineConfig({
         test: {
           name: "unit",
           root: import.meta.dirname,
-          include: ["packages/*/src/**/*.test.ts"],
+          // `apps/*/src` added alongside `packages/*/src` (fix/student-
+          // entry-access-ux): apps/web previously had zero test coverage of
+          // its own (pure decision helpers under apps/web/src/lib/**), a
+          // pre-existing gap this task's own tests need closed to run at
+          // all - flagged in that PR's own report rather than done silently.
+          include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
           exclude: ["packages/*/src/**/*.integration.test.ts"],
           environment: "node",
         },

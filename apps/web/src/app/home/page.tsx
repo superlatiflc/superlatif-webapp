@@ -2,22 +2,23 @@ import type { Metadata } from "next";
 import { program as programService } from "@superlatif/db";
 import { EmptyState, NextActionCard, ProgramCard } from "@superlatif/ui";
 import { getDb, getEffectiveAccessCache } from "../../lib/db.ts";
+import { getSessionUserId } from "../../lib/session.ts";
 
 // dok 07 §4 "Struktur Beranda" / dok 09 §8.1. Server Component: the view
 // model is built once, server-side, from @superlatif/db/program's
 // buildHomeViewModel (ENT-002 resolver + IDN-004 authorize() underneath -
 // this route invents no access rule of its own).
 //
-// IMPORTANT, READ BEFORE CHANGING: `userId` is read from the URL query
-// string as an explicit placeholder for real session-cookie
-// authentication, which no task has built yet (every prior task's ADR says
-// "no HTTP route calls this layer yet" - this is the first one, and it
-// still does not solve auth). This is NOT an authorization control - it is
-// a development/demo seam, clearly named so nobody mistakes it for one.
-// The actual authorization happens entirely inside buildHomeViewModel/
-// assertProgramAccess via authorize()+effective access; changing how the
-// user is IDENTIFIED here later (real cookies) does not change how access
-// is DECIDED. See ADR-052.
+// IDENTITY RESOLUTION, READ BEFORE CHANGING: the real session cookie
+// (lib/session.ts, built for the production tryout flow) is now checked
+// FIRST - this is exactly the transition ADR-052 itself anticipated
+// ("changing how the user is IDENTIFIED here later (real cookies) does not
+// change how access is DECIDED"). The `?userId=...` query string stays as
+// a fallback, unchanged, still explicitly a development/demo seam and
+// still not an authorization control - so a direct link using the old seam
+// keeps working. The actual authorization happens entirely inside
+// buildHomeViewModel/assertProgramAccess via authorize()+effective access,
+// exactly as before; only the source of `userId` changed.
 
 export const metadata: Metadata = {
   title: "Beranda | Superlatif",
@@ -28,7 +29,9 @@ interface HomePageProps {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const { userId } = await searchParams;
+  const { userId: queryUserId } = await searchParams;
+  const sessionUserId = await getSessionUserId();
+  const userId = sessionUserId ?? queryUserId;
 
   if (!userId) {
     return (
