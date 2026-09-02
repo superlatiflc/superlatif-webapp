@@ -4,7 +4,7 @@ import { exam } from "@superlatif/db";
 import type { AnswerReview } from "@superlatif/domain/exam";
 import { getDb } from "../../../../lib/db.ts";
 import { requireUserIdOrRedirect } from "../../../../lib/session.ts";
-import { notFoundOnAttemptAccessError } from "../../../../lib/attempt-access.ts";
+import { notFoundOnAttemptAccessError, parseAttemptId } from "../../../../lib/attempt-access.ts";
 import { extractText } from "../../../../lib/rich-text.ts";
 
 export const metadata: Metadata = {
@@ -58,6 +58,7 @@ function weightedNote(review: AnswerReview): string | undefined {
 export default async function ReviewPage({ params }: PageProps) {
   const userId = await requireUserIdOrRedirect();
   const { attemptId } = await params;
+  parseAttemptId(attemptId);
 
   const view = await exam
     .getAttemptReviewView(getDb(), userId, attemptId, new Date())

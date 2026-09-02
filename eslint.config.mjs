@@ -40,8 +40,11 @@ export default tseslint.config(
     },
   },
   {
-    // Governance scripts are command-line tools; printing a report is the point.
-    files: ["scripts/**/*.mjs", "**/*.config.mjs", "**/*.config.mts"],
+    // Governance scripts are command-line tools; printing a report is the
+    // point. `**/scripts/**/*.ts` covers per-package CLI tooling (e.g.
+    // packages/db/scripts/seed-staging.ts) on the same rationale - the glob
+    // is scoped to a `scripts/` directory, so product code is unaffected.
+    files: ["scripts/**/*.mjs", "**/scripts/**/*.ts", "**/*.config.mjs", "**/*.config.mts"],
     rules: { "no-console": "off" },
   },
   {
