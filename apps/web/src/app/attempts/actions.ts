@@ -7,6 +7,7 @@ import { exam } from "@superlatif/db";
 import { getDb, getEffectiveAccessCache } from "../../lib/db.ts";
 import { requireUserId } from "../../lib/session.ts";
 import { readLeaseToken, setLeaseToken } from "../../lib/attempt-lease.ts";
+import { classifyStartAttemptError } from "../../lib/attempt-start-error.ts";
 
 // Server Actions for the production tryout core flow.
 //
@@ -42,17 +43,35 @@ export async function startAttemptAction(formData: FormData): Promise<void> {
   // partial unique index `attempts_user_batch_active_uq` is the real
   // arbiter under a race. The idempotency key is generated server-side;
   // a browser never supplies an attempt identifier.
-  const result = await exam.startOrResumeAttempt(
-    db,
-    getEffectiveAccessCache(),
-    userId,
-    {
-      batchId: batch.id,
-      idempotencyKey: randomUUID(),
-      clientCapabilities: { offlineQueue: false, writerLease: true },
-    },
-    new Date(),
-  );
+  //
+  // Authorization is untouched - `assertAttemptStartEligible` (inside
+  // startOrResumeAttempt) still decides exactly as strictly as before.
+  // This only changes what happens to an EXPECTED denial afterward: instead
+  // of an uncaught throw surfacing as Next's generic error page, the three
+  // known eligibility outcomes (classifyStartAttemptError) redirect back to
+  // the batch page with a code the page renders a friendly message for.
+  // Anything NOT one of those three - a genuine bug, a DB error - still
+  // rethrows here and still surfaces as a real error, unchanged.
+  let result: Awaited<ReturnType<typeof exam.startOrResumeAttempt>>;
+  try {
+    result = await exam.startOrResumeAttempt(
+      db,
+      getEffectiveAccessCache(),
+      userId,
+      {
+        batchId: batch.id,
+        idempotencyKey: randomUUID(),
+        clientCapabilities: { offlineQueue: false, writerLease: true },
+      },
+      new Date(),
+    );
+  } catch (error) {
+    const denial = classifyStartAttemptError(error);
+    if (!denial) throw error;
+    const params = new URLSearchParams({ error: denial.code });
+    if (denial.reason) params.set("reason", denial.reason);
+    redirect(`/tryouts/${batchCode}?${params.toString()}`);
+  }
 
   // A lease token is only ever returned at the instant it is minted (start).
   // On resume it is null, and whatever token this device already holds in

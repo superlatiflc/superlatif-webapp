@@ -5,6 +5,7 @@ import { exam } from "@superlatif/db";
 import { getDb } from "../../../lib/db.ts";
 import { getSessionUserId } from "../../../lib/session.ts";
 import { startAttemptAction } from "../../attempts/actions.ts";
+import type { AttemptStartDenialCode } from "../../../lib/attempt-start-error.ts";
 
 export const metadata: Metadata = {
   title: "Mulai Tryout | Superlatif",
@@ -19,22 +20,44 @@ export const metadata: Metadata = {
 // ENT-002 effective-access + attempt-allowance check server-side when the
 // form is submitted. This page only decides what to RENDER, and menu
 // visibility is never treated as authorization.
+//
+// `?error=`/`?reason=`: startAttemptAction redirects back here with these
+// when the domain refuses to start an attempt for one of three EXPECTED
+// reasons (classifyStartAttemptError) - never for a genuine server error,
+// which still surfaces as a real error page unchanged. `reason` (only ever
+// set for `error=denied`) is `EffectiveAccessDecision.studentReason`,
+// already documented safe-to-show verbatim; the other two codes have no
+// such pre-vetted string, so their copy lives here instead.
+
+const DENIAL_COPY: Record<AttemptStartDenialCode, string> = {
+  denied: "Kamu belum memiliki akses ke tryout ini.",
+  window_closed: "Tryout ini sedang tidak dalam periode pengerjaan.",
+  limit_reached: "Kamu sudah menggunakan seluruh kesempatan mengerjakan tryout ini.",
+};
+
+function isDenialCode(value: string): value is AttemptStartDenialCode {
+  return value === "denied" || value === "window_closed" || value === "limit_reached";
+}
 
 interface PageProps {
   readonly params: Promise<{ readonly batchCode: string }>;
+  readonly searchParams: Promise<{ readonly error?: string; readonly reason?: string }>;
 }
 
-export default async function TryoutStartPage({ params }: PageProps) {
+export default async function TryoutStartPage({ params, searchParams }: PageProps) {
   const userId = await getSessionUserId();
   if (!userId) redirect("/signin");
 
   const { batchCode } = await params;
+  const { error, reason } = await searchParams;
   const db = getDb();
   const batch = await exam.findExamBatchByCode(db, decodeURIComponent(batchCode));
   if (!batch) notFound();
 
   const state = await exam.getExamBatchState(db, batch.id, new Date());
   const canStart = state === "exam_open";
+
+  const denialMessage = error && isDenialCode(error) ? (reason ?? DENIAL_COPY[error]) : null;
 
   return (
     <main className="slf-page">
@@ -43,6 +66,15 @@ export default async function TryoutStartPage({ params }: PageProps) {
         variant={canStart ? "success" : "info"}
         label={canStart ? "Bisa dikerjakan" : "Belum bisa dikerjakan"}
       />
+
+      {denialMessage ? (
+        <div role="alert">
+          <p className="slf-empty-state__body">{denialMessage}</p>
+          <a className="slf-button slf-button--secondary" href="/tryouts">
+            Kembali ke Tryout
+          </a>
+        </div>
+      ) : null}
 
       {canStart ? (
         <>
@@ -57,12 +89,12 @@ export default async function TryoutStartPage({ params }: PageProps) {
             </button>
           </form>
         </>
-      ) : (
+      ) : !denialMessage ? (
         <EmptyState
           title="Tryout belum dibuka"
           body="Tryout ini sedang tidak dalam periode pengerjaan. Cek kembali sesuai jadwal yang diberikan pengajarmu."
         />
-      )}
+      ) : null}
     </main>
   );
 }
