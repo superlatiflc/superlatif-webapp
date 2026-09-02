@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { exam } from "@superlatif/db";
 import { getDb } from "../../../../lib/db.ts";
 import { requireUserIdOrRedirect } from "../../../../lib/session.ts";
-import { notFoundOnAttemptAccessError } from "../../../../lib/attempt-access.ts";
+import { notFoundOnAttemptAccessError, parseAttemptId } from "../../../../lib/attempt-access.ts";
 import { readLeaseToken } from "../../../../lib/attempt-lease.ts";
 import { submitAttemptAction } from "../../actions.ts";
 
@@ -35,6 +35,7 @@ const SUBMIT_ERROR_COPY: Record<string, string> = {
 export default async function SubmitPage({ params, searchParams }: PageProps) {
   const userId = await requireUserIdOrRedirect();
   const { attemptId } = await params;
+  parseAttemptId(attemptId);
   const { error } = await searchParams;
 
   const view = await exam

@@ -3,7 +3,7 @@ import { EmptyState, ResultScoreCard, type ResultSectionScore } from "@superlati
 import { exam } from "@superlatif/db";
 import { getDb } from "../../../../lib/db.ts";
 import { requireUserIdOrRedirect } from "../../../../lib/session.ts";
-import { notFoundOnAttemptAccessError } from "../../../../lib/attempt-access.ts";
+import { notFoundOnAttemptAccessError, parseAttemptId } from "../../../../lib/attempt-access.ts";
 
 export const metadata: Metadata = {
   title: "Hasil Tryout | Superlatif",
@@ -39,6 +39,7 @@ function toSections(scoreSummary: Record<string, unknown>): readonly ResultSecti
 export default async function ResultPage({ params }: PageProps) {
   const userId = await requireUserIdOrRedirect();
   const { attemptId } = await params;
+  parseAttemptId(attemptId);
 
   const view = await exam
     .getStudentResultView(getDb(), userId, attemptId, new Date())

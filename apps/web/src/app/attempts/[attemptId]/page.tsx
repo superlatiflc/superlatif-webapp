@@ -4,7 +4,7 @@ import { EmptyState } from "@superlatif/ui";
 import { exam } from "@superlatif/db";
 import { getDb } from "../../../lib/db.ts";
 import { requireUserIdOrRedirect } from "../../../lib/session.ts";
-import { notFoundOnAttemptAccessError } from "../../../lib/attempt-access.ts";
+import { notFoundOnAttemptAccessError, parseAttemptId } from "../../../lib/attempt-access.ts";
 import { readLeaseToken } from "../../../lib/attempt-lease.ts";
 import { extractText } from "../../../lib/rich-text.ts";
 import { takeoverLeaseAction } from "../actions.ts";
@@ -36,6 +36,7 @@ interface PageProps {
 export default async function AttemptPage({ params }: PageProps) {
   const userId = await requireUserIdOrRedirect();
   const { attemptId } = await params;
+  parseAttemptId(attemptId);
 
   const view = await exam
     .getAttemptResumeView(getDb(), userId, attemptId, await readLeaseToken(attemptId), new Date())
