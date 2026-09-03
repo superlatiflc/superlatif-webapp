@@ -65,6 +65,14 @@ function messageFor(code: SaveFailureCode): string {
       // Pilihan yang sudah dibuat tetap ada di layar; hanya penyimpanannya
       // yang ditunda, dan penyimpanan berikutnya akan tersimpan normal.
       return "Permintaan terlalu cepat. Coba lagi beberapa saat.";
+    case "writes_disabled":
+      // ACCURACY OVER REASSURANCE (P0-2). This exact answer was NOT saved, so
+      // the copy must not say "progresmu aman" without qualification - the
+      // guard runs before the write, which is precisely why we can promise
+      // that ALREADY-SAVED answers are intact while being explicit that this
+      // one is not yet. Overstating it here would be the "hide an operational
+      // failure behind motivational language" the brand rules forbid.
+      return "Penyimpanan jawaban sedang dihentikan sementara. Jawaban yang sudah tersimpan tetap aman, tetapi jawaban ini belum tersimpan. Jangan tutup halaman ini; coba lagi beberapa saat.";
   }
 }
 

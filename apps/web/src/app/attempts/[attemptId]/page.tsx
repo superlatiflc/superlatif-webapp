@@ -31,12 +31,26 @@ export const metadata: Metadata = {
 
 interface PageProps {
   readonly params: Promise<{ readonly attemptId: string }>;
+  // Only a controlled outcome code from takeoverLeaseAction. Never identity -
+  // see no-query-identity.test.ts, which fails the build if `userId` is ever
+  // reintroduced as a search param on a production route (P0-1).
+  readonly searchParams: Promise<{ readonly error?: string }>;
 }
 
-export default async function AttemptPage({ params }: PageProps) {
+/** P0-2: takeover refusals. Nothing was mutated, and the copy says so. */
+const TAKEOVER_ERROR_COPY: Record<string, string> = {
+  writes_disabled:
+    "Pengambilalihan sedang dihentikan sementara untuk pemeliharaan. Jawaban yang sudah tersimpan tetap aman. Coba lagi beberapa saat.",
+  feature_disabled: "Tryout sedang tidak tersedia saat ini. Jawaban yang sudah tersimpan tetap aman.",
+  rate_limited: "Permintaan terlalu cepat. Coba lagi beberapa saat.",
+};
+
+export default async function AttemptPage({ params, searchParams }: PageProps) {
   const userId = await requireUserIdOrRedirect();
   const { attemptId } = await params;
   parseAttemptId(attemptId);
+  const { error } = await searchParams;
+  const takeoverError = error ? TAKEOVER_ERROR_COPY[error] : undefined;
 
   const view = await exam
     .getAttemptResumeView(getDb(), userId, attemptId, await readLeaseToken(attemptId), new Date())
@@ -52,6 +66,11 @@ export default async function AttemptPage({ params }: PageProps) {
     return (
       <main className="slf-page">
         <h1 className="slf-section-title">Lanjutkan di perangkat ini?</h1>
+        {takeoverError ? (
+          <p className="slf-empty-state__body" role="alert">
+            {takeoverError}
+          </p>
+        ) : null}
         <EmptyState
           title="Tryout sedang terbuka di tempat lain"
           body="Untuk mencegah jawaban saling menimpa, hanya satu perangkat yang boleh menulis dalam satu waktu. Ambil alih untuk melanjutkan di sini - jawaban yang sudah tersimpan tetap aman."

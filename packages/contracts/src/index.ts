@@ -29,3 +29,13 @@ export {
   type FeatureFlag,
   type FlagName,
 } from "./flags.ts";
+export {
+  CapabilityDisabledError,
+  ProductionWritesDisabledError,
+  assertCapabilityEnabled,
+  assertProductionWritesEnabled,
+  isCapabilityEnabled,
+  isProductionRuntime,
+  isProductionWriteAllowed,
+  resetRuntimeFlagsForTests,
+} from "./runtime-flags.ts";

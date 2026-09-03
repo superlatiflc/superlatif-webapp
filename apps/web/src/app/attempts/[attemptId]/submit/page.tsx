@@ -33,6 +33,13 @@ const SUBMIT_ERROR_COPY: Record<string, string> = {
   // Jawaban aman: throttling terjadi sebelum pengiriman diproses, dan
   // pengiriman tetap idempoten saat dicoba lagi (P0-3).
   rate_limited: "Permintaan terlalu cepat. Coba lagi beberapa saat. Jawabanmu tetap tersimpan.",
+  // P0-2. Safe to say answers remain saved here: the guard runs before
+  // submitAttempt, so the attempt is untouched and every previously saved
+  // answer is still committed. It does NOT claim the submission succeeded.
+  writes_disabled:
+    "Pengiriman sedang dihentikan sementara untuk pemeliharaan. Jawabanmu tetap tersimpan dan tryout ini belum dikirim. Coba lagi beberapa saat.",
+  feature_disabled:
+    "Pengiriman tryout sedang tidak tersedia. Jawabanmu tetap tersimpan dan tryout ini belum dikirim. Hubungi tim dukungan jika ini berlanjut.",
 };
 
 export default async function SubmitPage({ params, searchParams }: PageProps) {

@@ -15,6 +15,7 @@ import {
   enforceLeaseTakeoverRateLimit,
   enforceSubmitRateLimit,
 } from "../../lib/rate-limit.ts";
+import { examWriteBlockReason, examWritesPermitted } from "../../lib/write-guard.ts";
 
 // Server Actions for the production tryout core flow.
 //
@@ -35,13 +36,20 @@ export type SaveAnswerActionResult =
   | { readonly ok: true; readonly revision: number; readonly attemptRevision: number }
   | {
       readonly ok: false;
-      readonly code: "lease_lost" | "deadline_passed" | "conflict" | "invalid" | "rate_limited";
+      readonly code:
+        "lease_lost" | "deadline_passed" | "conflict" | "invalid" | "rate_limited" | "writes_disabled";
     };
 
 export async function startAttemptAction(formData: FormData): Promise<void> {
   const userId = await requireUserId();
   const batchCode = String(formData.get("batchCode") ?? "");
   if (!batchCode) redirect("/tryouts");
+
+  // P0-2. Both guards run BEFORE `getDb()` and before any read or write, so a
+  // refusal cannot create an attempt row, an audit event, or a writer lease.
+  // Starting an exam is the clearest "business write that must stop": nothing
+  // is in flight yet, so refusing here strands nobody.
+  if (!examWritesPermitted()) redirect(`/tryouts/${batchCode}?error=writes_disabled`);
 
   // P0-3. Start/resume is idempotent, so throttling here costs a learner
   // nothing they cannot retry: the redirect lands back on the batch page,
@@ -115,6 +123,12 @@ export async function takeoverLeaseAction(formData: FormData): Promise<void> {
   const attemptId = String(formData.get("attemptId") ?? "");
   if (!attemptId) redirect("/tryouts");
 
+  // P0-2. Takeover mutates the writer lease, so it is a business write and
+  // stops with the rest. Refusing is safe: the lease is left exactly as it
+  // was, whichever device already holds it keeps it, and no answer state is
+  // touched either way.
+  if (!examWritesPermitted()) redirect(`/attempts/${attemptId}?error=writes_disabled`);
+
   try {
     await enforceLeaseTakeoverRateLimit(userId);
   } catch (error) {
@@ -138,6 +152,20 @@ export async function saveAnswerAction(input: {
   const db = getDb();
   const leaseToken = await readLeaseToken(input.attemptId);
   const now = new Date();
+
+  // P0-2, the most sensitive guard in this file. Runs before the lease
+  // renewal and before saveAnswer, so a refusal writes NOTHING: no answer
+  // mutation row, no revision bump, no lease renewal.
+  //
+  // Honest UX matters more here than anywhere else. A learner mid-exam who is
+  // refused a save has NOT had that keystroke persisted, so the message this
+  // maps to must not claim their progress is saved - it says previously saved
+  // answers are safe (true: they are committed rows) and that this one has
+  // not been. dok 30 §6's "no change during active attempt" is the reason an
+  // operator should prefer pausing a cohort or extending a batch over
+  // flipping this switch during a live batch; the switch remains available
+  // for a SEV-0 where stopping writes outright is the lesser harm.
+  if (!examWritesPermitted()) return { ok: false, code: "writes_disabled" };
 
   // P0-3, autosave. Runs BEFORE the lease renewal and the write, so a
   // runaway client loop is stopped without touching answer state at all.
@@ -235,6 +263,15 @@ export async function submitAttemptAction(formData: FormData): Promise<void> {
   // explains what happened.
   if (!leaseToken) redirect(`/attempts/${attemptId}/submit?error=lease_lost`);
 
+  // P0-2. Before submitAttempt, so a refusal creates no submission row, no
+  // attempt_audit_event, and - critically - no scoring_job_outbox row. That
+  // ordering is what keeps the kill switch from manufacturing the very
+  // inconsistency it exists to prevent: there is no such thing as a submitted
+  // -but-unscorable attempt produced by flipping this switch, because the
+  // switch refuses before the submission exists at all.
+  const submitBlock = examWriteBlockReason();
+  if (submitBlock) redirect(`/attempts/${attemptId}/submit?error=${submitBlock}`);
+
   // P0-3. Bounds the cost of the inline scoring drain below. Idempotency
   // remains authoritative: the unique index on attempt_submissions is what
   // guarantees one submission, and a throttled retry converges on that same
@@ -275,6 +312,22 @@ export async function submitAttemptAction(formData: FormData): Promise<void> {
   // Drain this attempt's own pending scoring job(s). Idempotent: an
   // already-delivered job replays the existing result instead of scoring
   // twice.
+  //
+  // P0-2 policy, deliberately NOT guarded. Scoring is "completing
+  // already-committed durable work", not "initiating a new business write":
+  // by the time control reaches here, submitAttempt has committed a
+  // submission and its outbox row, and the learner has been told their exam
+  // was submitted. Refusing to score at this point would strand a submitted
+  // attempt without a result - manufacturing exactly the inconsistent state
+  // dok 30 §9 tells an incident commander to avoid, and one that no later
+  // flag flip repairs on its own. The switch stops submissions from being
+  // CREATED (above); it does not abandon ones that already exist.
+  //
+  // There is no ambiguity to escalate here because there is no worker loop to
+  // reason about: apps/worker/src/index.ts still validates env, logs one
+  // line, and starts no work, so this inline drain is the only code that ever
+  // executes a scoring job today. "Worker pause" remains a separate
+  // containment lever in dok 30 §9 for when that worker exists.
   for (const job of await exam.findPendingScoringJobs(db)) {
     if (job.attemptId === attemptId) await exam.drainScoringJob(db, job.id, now);
   }
