@@ -8,6 +8,13 @@ import { getDb, getEffectiveAccessCache } from "../../lib/db.ts";
 import { requireUserId } from "../../lib/session.ts";
 import { readLeaseToken, setLeaseToken } from "../../lib/attempt-lease.ts";
 import { classifyStartAttemptError } from "../../lib/attempt-start-error.ts";
+import {
+  RateLimitedError,
+  enforceAnswerSaveRateLimit,
+  enforceAttemptStartRateLimit,
+  enforceLeaseTakeoverRateLimit,
+  enforceSubmitRateLimit,
+} from "../../lib/rate-limit.ts";
 
 // Server Actions for the production tryout core flow.
 //
@@ -26,12 +33,26 @@ import { classifyStartAttemptError } from "../../lib/attempt-start-error.ts";
 /** What the attempt player renders after a save - never the answer key, never a score. */
 export type SaveAnswerActionResult =
   | { readonly ok: true; readonly revision: number; readonly attemptRevision: number }
-  | { readonly ok: false; readonly code: "lease_lost" | "deadline_passed" | "conflict" | "invalid" };
+  | {
+      readonly ok: false;
+      readonly code: "lease_lost" | "deadline_passed" | "conflict" | "invalid" | "rate_limited";
+    };
 
 export async function startAttemptAction(formData: FormData): Promise<void> {
   const userId = await requireUserId();
   const batchCode = String(formData.get("batchCode") ?? "");
   if (!batchCode) redirect("/tryouts");
+
+  // P0-3. Start/resume is idempotent, so throttling here costs a learner
+  // nothing they cannot retry: the redirect lands back on the batch page,
+  // which already renders reason codes, and the existing attempt is
+  // untouched.
+  try {
+    await enforceAttemptStartRateLimit(userId);
+  } catch (error) {
+    if (error instanceof RateLimitedError) redirect(`/tryouts/${batchCode}?error=rate_limited`);
+    throw error;
+  }
 
   const db = getDb();
   const batch = await exam.findExamBatchByCode(db, batchCode);
@@ -94,6 +115,13 @@ export async function takeoverLeaseAction(formData: FormData): Promise<void> {
   const attemptId = String(formData.get("attemptId") ?? "");
   if (!attemptId) redirect("/tryouts");
 
+  try {
+    await enforceLeaseTakeoverRateLimit(userId);
+  } catch (error) {
+    if (error instanceof RateLimitedError) redirect(`/attempts/${attemptId}?error=rate_limited`);
+    throw error;
+  }
+
   const takeover = await exam.takeoverWriterLease(getDb(), userId, attemptId, new Date());
   await setLeaseToken(attemptId, takeover.leaseToken);
   redirect(`/attempts/${attemptId}`);
@@ -110,6 +138,22 @@ export async function saveAnswerAction(input: {
   const db = getDb();
   const leaseToken = await readLeaseToken(input.attemptId);
   const now = new Date();
+
+  // P0-3, autosave. Runs BEFORE the lease renewal and the write, so a
+  // runaway client loop is stopped without touching answer state at all.
+  //
+  // Returned as a normal result code rather than thrown: the player already
+  // handles `ok: false` by surfacing a message and keeping the learner's
+  // local answer, so a throttled save behaves exactly like any other
+  // non-fatal save failure. Nothing is lost - CAS, clientMutationId, the
+  // writer lease, and the learner's unsaved selection are all untouched, and
+  // the next save inside budget persists normally.
+  try {
+    await enforceAnswerSaveRateLimit(input.attemptId, now);
+  } catch (error) {
+    if (error instanceof RateLimitedError) return { ok: false, code: "rate_limited" };
+    throw error;
+  }
 
   try {
     // Renew BEFORE writing: the lease TTL (120s) is shorter than a learner
@@ -190,6 +234,19 @@ export async function submitAttemptAction(formData: FormData): Promise<void> {
   // void-returning action, and the learner needs to land somewhere that
   // explains what happened.
   if (!leaseToken) redirect(`/attempts/${attemptId}/submit?error=lease_lost`);
+
+  // P0-3. Bounds the cost of the inline scoring drain below. Idempotency
+  // remains authoritative: the unique index on attempt_submissions is what
+  // guarantees one submission, and a throttled retry converges on that same
+  // single submission exactly as an untrottled retry does.
+  try {
+    await enforceSubmitRateLimit(attemptId);
+  } catch (error) {
+    if (error instanceof RateLimitedError) {
+      redirect(`/attempts/${attemptId}/submit?error=rate_limited`);
+    }
+    throw error;
+  }
 
   try {
     await exam.submitAttempt(

@@ -42,6 +42,19 @@ paths = [
   '''(^|/)build/''',
   '''(^|/)coverage/''',
   '''(^|/)\.cache/''',
+  # Local environment files. Same reasoning as the build output above: these
+  # are gitignored (.gitignore ".env.local"), never committed, and hold real
+  # local/staging credentials BY DESIGN - that is what the file is for. The
+  # protection they need is "never commit .env.local", which .gitignore
+  # already enforces, and CI never sees them at all (fresh checkout).
+  # Flagging them turns a correctly-configured developer machine into a
+  # failing `verify`, which trains people to ignore the scanner.
+  #
+  # Deliberately does NOT cover `.env.example`, which IS committed: a real
+  # value appearing there stays a finding, and the rule above exists to catch
+  # exactly that.
+  '''(^|/)\.env\.local$''',
+  '''(^|/)\.env\.[^/]*\.local$''',
 ]
 regexTarget = "match"
 regexes = [

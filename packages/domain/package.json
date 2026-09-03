@@ -12,6 +12,7 @@
     "./authorization": "./src/authorization/index.ts",
     "./program": "./src/program/index.ts",
     "./exam": "./src/exam/index.ts",
+    "./rate-limit": "./src/rate-limit/index.ts",
     "./shared": "./src/shared/index.ts"
   },
   "types": "./src/index.ts",

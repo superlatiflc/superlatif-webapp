@@ -13,6 +13,10 @@ const ERROR_COPY: Record<string, string> = {
   handle: "Masukkan nama pengguna yang valid (maksimal 64 karakter).",
   conflict:
     "Identitas ini cocok dengan lebih dari satu akun, jadi kami tidak menautkannya otomatis. Hubungi tim dukungan untuk penyelesaian.",
+  // Deliberately says nothing about which limit was reached, how many
+  // attempts remain, or whether this nama pengguna exists - a throttle
+  // message must not become a user-existence oracle (P0-3).
+  rate_limited: "Terlalu banyak percobaan. Coba lagi beberapa saat.",
 };
 
 interface PageProps {

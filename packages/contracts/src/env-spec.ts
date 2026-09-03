@@ -304,7 +304,16 @@ export const ENV_SPEC = {
     requirement: "optional-default",
     defaultValue: "true",
     secret: false,
-    description: "Rate limiting. Safe default is on, not off.",
+    description:
+      "Rate limiting. Safe default is on, not off. When on outside local/test, RATE_LIMIT_HASH_SECRET must also be set - apps/web fails startup rather than serving unprotected.",
+  },
+  RATE_LIMIT_HASH_SECRET: {
+    type: "string",
+    requirement: "optional-no-default",
+    secret: true,
+    minLength: 16,
+    description:
+      "HMAC key for rate-limit bucket keys, so no raw IP or login handle is ever persisted. Dedicated on purpose: never reuse a session/auth secret, so rotating it only resets counters.",
   },
   DEVICE_LEASE_ENFORCEMENT: {
     type: "boolean",

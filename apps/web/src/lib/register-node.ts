@@ -34,5 +34,18 @@ export async function registerNode(): Promise<void> {
     process.exit(1);
   }
 
+  // P0-3: an enabled-but-unconfigured limiter, or a limiter switched off in
+  // staging/production, must stop the process rather than serve unprotected.
+  // Only the message is logged - never the secret, and never its length.
+  try {
+    const { assertRateLimitConfigured } = await import("./rate-limit.ts");
+    assertRateLimitConfigured();
+  } catch (error) {
+    logger.fatal("startup.rate_limit_misconfigured", {
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    process.exit(1);
+  }
+
   logger.info("startup.config_validated", { requiredFieldCount: CORE_REQUIRED_FOR_STARTUP.length });
 }

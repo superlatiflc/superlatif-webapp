@@ -30,6 +30,9 @@ const SUBMIT_ERROR_COPY: Record<string, string> = {
     "Tryout ini sedang terbuka di perangkat atau tab lain, jadi pengiriman dihentikan. Buka kembali halaman soal untuk melanjutkan di perangkat ini.",
   not_submittable:
     "Ada jawaban yang baru saja berubah, atau tryout ini sudah dikirim sebelumnya. Muat ulang halaman untuk melihat kondisi terbaru.",
+  // Jawaban aman: throttling terjadi sebelum pengiriman diproses, dan
+  // pengiriman tetap idempoten saat dicoba lagi (P0-3).
+  rate_limited: "Permintaan terlalu cepat. Coba lagi beberapa saat. Jawabanmu tetap tersimpan.",
 };
 
 export default async function SubmitPage({ params, searchParams }: PageProps) {
