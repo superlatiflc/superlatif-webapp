@@ -64,9 +64,15 @@ export default async function TryoutStartPage({ params, searchParams }: PageProp
   const denialMessage =
     error === "rate_limited"
       ? "Permintaan terlalu cepat. Coba lagi beberapa saat."
-      : error && isDenialCode(error)
-        ? (reason ?? DENIAL_COPY[error])
-        : null;
+      : // P0-2. Nothing was created, so this states plainly that the tryout
+        // did not start rather than implying a partial attempt exists.
+        error === "writes_disabled"
+        ? "Tryout sedang tidak dapat dimulai karena pemeliharaan. Tryout ini belum dimulai dan progresmu tetap aman. Coba lagi beberapa saat."
+        : error === "feature_disabled"
+          ? "Tryout sedang tidak tersedia saat ini. Tryout ini belum dimulai. Hubungi tim dukungan jika ini berlanjut."
+          : error && isDenialCode(error)
+            ? (reason ?? DENIAL_COPY[error])
+            : null;
 
   return (
     <main className="slf-page">
