@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { exam } from "@superlatif/db";
 import { EmptyState, QuestionPreviewCard, StatusBadge, type StatusBadgeVariant } from "@superlatif/ui";
 import { getDb } from "../../../../../lib/db.ts";
+import { requireUserIdOrRedirect } from "../../../../../lib/session.ts";
 
 // dok 12 §29 "A06" section 8 (Preview desktop/mobile) / §31 "A09 — Review
 // Queue" (QST-003). A moderator must see EXACTLY what a student would see
@@ -19,12 +21,31 @@ import { getDb } from "../../../../../lib/db.ts";
 // follow-up task, matching every prior task's "service ready, write-action
 // UI deferred" shape.
 //
-// `?userId=` is the same development/demo auth-stub seam every prior
-// server-rendered route in this app uses (see `/home`'s own module doc) -
-// NOT an authorization control. Authorization is decided entirely by
-// `buildQuestionPreview`'s own `assertQuestionPermission` call
-// underneath - denying an unauthorized actor here is that function's
-// decision surfacing as a real page, not a route-level shortcut.
+// IDENTITY AND AUTHORIZATION - DO NOT REINTRODUCE A QUERY-STRING SEAM.
+//
+// This route previously took the acting admin's identity from `?userId=`
+// (ADR-052's dev seam). That was P0-1 of the production readiness audit and
+// the most severe instance of it: reproduced live on the deployed staging
+// URL, an anonymous caller supplying any UUID holding
+// `question.draft.write` received HTTP 200 with the question stem, its
+// options, and the full moderation history. Identity now comes ONLY from
+// the server-side session (`requireUserIdOrRedirect`).
+//
+// Authorization is unchanged and still decided by the EXISTING primitive:
+// `buildQuestionPreview` -> `assertQuestionPermission(db, actor,
+// "question.draft.write")` -> `listActiveRoleHoldings` + IDN-004's
+// `authorize()`. No new RBAC framework is introduced here; the narrowest
+// existing check is simply now fed a session-derived actor it cannot
+// forge.
+//
+// NON-DISCLOSURE: an unauthorized actor and a nonexistent version now
+// collapse to the SAME `notFound()`. Previously they rendered two distinct
+// messages, which let an unauthorized caller probe which version ids exist
+// - the same oracle `lib/attempt-access.ts` already refuses for attempts,
+// applied here for the same reason.
+//
+// `apps/web/src/app/no-query-identity.test.ts` fails the build if a
+// production route reintroduces `userId` as a search param.
 
 export const metadata: Metadata = {
   title: "Review Soal | Superlatif Admin",
@@ -32,7 +53,6 @@ export const metadata: Metadata = {
 
 interface ReviewPageProps {
   readonly params: Promise<{ readonly versionId: string }>;
-  readonly searchParams: Promise<{ readonly userId?: string }>;
 }
 
 const STATUS_BADGE: Record<string, { readonly variant: StatusBadgeVariant; readonly label: string }> = {
@@ -60,20 +80,9 @@ function formatTimestamp(value: Date): string {
   }).format(value);
 }
 
-export default async function QuestionReviewPage({ params, searchParams }: ReviewPageProps) {
+export default async function QuestionReviewPage({ params }: ReviewPageProps) {
   const { versionId } = await params;
-  const { userId } = await searchParams;
-
-  if (!userId) {
-    return (
-      <main className="slf-page">
-        <EmptyState
-          title="Belum ada sesi aktif"
-          body="Halaman ini memuat preview dan riwayat review berdasarkan akun yang masuk. Autentikasi sesi/cookie belum dibangun pada task ini - tambahkan ?userId=... pada URL untuk mode pengembangan."
-        />
-      </main>
-    );
-  }
+  const userId = await requireUserIdOrRedirect();
 
   const db = getDb();
 
@@ -81,25 +90,15 @@ export default async function QuestionReviewPage({ params, searchParams }: Revie
   try {
     preview = await exam.buildQuestionPreview(db, userId, versionId);
   } catch (error) {
-    if (error instanceof exam.QuestionActionNotAuthorizedError) {
-      return (
-        <main className="slf-page">
-          <EmptyState
-            title="Kamu belum memiliki akses ke soal ini"
-            body="Melihat preview soal memerlukan peran penulis, moderator, atau admin akademik. Hubungi admin jika menurutmu ini keliru."
-          />
-        </main>
-      );
-    }
-    if (error instanceof exam.QuestionVersionNotFoundForPreviewError) {
-      return (
-        <main className="slf-page">
-          <EmptyState
-            title="Soal tidak ditemukan"
-            body="Versi soal ini mungkin sudah dihapus atau ID salah."
-          />
-        </main>
-      );
+    // Unauthorized and nonexistent deliberately produce the SAME 404 - see
+    // the NON-DISCLOSURE note in this file's module doc. A genuine
+    // technical fault still renders its own distinct state below, so a real
+    // outage is never disguised as "not found".
+    if (
+      error instanceof exam.QuestionActionNotAuthorizedError ||
+      error instanceof exam.QuestionVersionNotFoundForPreviewError
+    ) {
+      notFound();
     }
     return (
       <main className="slf-page">
