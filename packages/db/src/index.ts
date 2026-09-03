@@ -20,3 +20,4 @@ export * as commerce from "./commerce/index.ts";
 export * as authorization from "./authorization/index.ts";
 export * as program from "./program/index.ts";
 export * as exam from "./exam/index.ts";
+export * as rateLimit from "./rate-limit/index.ts";

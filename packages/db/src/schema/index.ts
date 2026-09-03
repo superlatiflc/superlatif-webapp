@@ -77,3 +77,4 @@ export { attemptAuditEvents, attemptSubmissions, scoringJobOutbox } from "./subm
 export { resultVersions } from "./results.ts";
 export { correctionCases, correctionDecisions } from "./corrections.ts";
 export { rankingSubjects, rankingSnapshots, rankingEntries } from "./ranking.ts";
+export { rateLimitCounters } from "./rate-limit.ts";

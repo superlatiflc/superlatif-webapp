@@ -61,6 +61,10 @@ function messageFor(code: SaveFailureCode): string {
       return "Jawaban untuk soal ini baru saja berubah di tempat lain. Muat ulang halaman untuk melihat versi terbaru.";
     case "invalid":
       return "Jawaban ini tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+    case "rate_limited":
+      // Pilihan yang sudah dibuat tetap ada di layar; hanya penyimpanannya
+      // yang ditunda, dan penyimpanan berikutnya akan tersimpan normal.
+      return "Permintaan terlalu cepat. Coba lagi beberapa saat.";
   }
 }
 

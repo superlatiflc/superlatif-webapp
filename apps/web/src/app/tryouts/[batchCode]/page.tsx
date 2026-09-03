@@ -57,7 +57,16 @@ export default async function TryoutStartPage({ params, searchParams }: PageProp
   const state = await exam.getExamBatchState(db, batch.id, new Date());
   const canStart = state === "exam_open";
 
-  const denialMessage = error && isDenialCode(error) ? (reason ?? DENIAL_COPY[error]) : null;
+  // `rate_limited` is kept OUT of AttemptStartDenialCode on purpose: that
+  // type is the domain's eligibility vocabulary (dok 16), and throttling is
+  // not an eligibility decision. Adding it there would let an abuse control
+  // masquerade as an access rule (P0-3).
+  const denialMessage =
+    error === "rate_limited"
+      ? "Permintaan terlalu cepat. Coba lagi beberapa saat."
+      : error && isDenialCode(error)
+        ? (reason ?? DENIAL_COPY[error])
+        : null;
 
   return (
     <main className="slf-page">

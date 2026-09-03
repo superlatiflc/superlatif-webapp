@@ -10,6 +10,7 @@ import {
   SESSION_TTL_SECONDS,
 } from "../../lib/session.ts";
 import { DevLoginDisabledError, isDevLoginEnabled } from "../../lib/dev-login.ts";
+import { RateLimitedError, enforceSignInRateLimit } from "../../lib/rate-limit.ts";
 
 // Sign-in for the production tryout slice.
 //
@@ -41,6 +42,21 @@ export async function devSignInAction(formData: FormData): Promise<void> {
   const handle = typeof rawHandle === "string" ? rawHandle.trim().toLowerCase() : "";
   if (handle.length === 0 || handle.length > 64) {
     redirect("/signin?error=handle");
+  }
+
+  // P0-3. Placed HERE deliberately: after shape validation (so a malformed
+  // request cannot consume another caller's budget) but BEFORE
+  // performDeterministicLogin, which is what creates the user row and the
+  // session row. A throttled sign-in must leave no trace in either table.
+  //
+  // The refusal is identical whether or not the handle belongs to a real
+  // account - `enforceSignInRateLimit` never looks the handle up, it only
+  // hashes it - so throttling cannot be used as a user-existence oracle.
+  try {
+    await enforceSignInRateLimit(handle);
+  } catch (error) {
+    if (error instanceof RateLimitedError) redirect("/signin?error=rate_limited");
+    throw error;
   }
 
   const result = await identity.performDeterministicLogin(
