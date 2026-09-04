@@ -4,7 +4,16 @@
 
 **Companion document:** `PRODUCTION_READINESS_AUDIT.md` carries the evidence behind every status claim here.
 
-**Nothing in this document has been executed.** Creating Supabase Production and configuring Vercel Production are execution gates that require explicit approval.
+**Nothing in this document has been executed.** Creating Supabase Production and configuring Vercel Production are execution gates.
+
+> **Who can execute Phases A and B.** Not this coding agent, and not for want of approval. The environment has no Supabase or Vercel credentials: neither CLI is installed, `SUPABASE_ACCESS_TOKEN` and `VERCEL_TOKEN` are unset, there is no `.vercel` project link, and unauthenticated probes return HTTP 401 (Supabase Management API) and HTTP 403 (Vercel API). Provisioning also spends money and creates billable resources under an account the agent cannot and should not authenticate into.
+>
+> Two ways forward, both fine:
+>
+> 1. **A human performs Phases A and B** in the two dashboards, following this document, then runs the verification commands below and pastes the output.
+> 2. **A human authenticates the CLIs on this machine** (`supabase login`, `vercel login`) — the agent never sees the token — after which the agent can drive Phases A–C and produce the evidence directly.
+>
+> Everything else in this plan is already prepared: exact settings, the full variable inventory, and a read-only verification command that emits the Phase C and Phase 7 evidence in one shot.
 
 ---
 
@@ -73,15 +82,21 @@ A **new, separate project**. Never reuse, fork, or restore staging.
 - Apply migrations **0000–0023 in order** with `pnpm run db:migrate`. No manual DDL, no `drizzle-kit push`, no schema copied from staging.
 - **No staging data of any kind** — no fixtures, no users, no attempts. Production starts empty.
 
-**Verification before anything else**
+**Verification before anything else — one command**
 
+```bash
+DATABASE_URL='<production migration string>' pnpm run db:verify-production -- --expect-empty
 ```
-select count(*) from drizzle.__drizzle_migrations;   -- expect 24
-select to_regclass('public.rate_limit_counters');    -- expect non-null
-select count(*) from users;                          -- expect 0
-```
+
+This is strictly read-only and never prints the connection string or any part of it. It asserts 24 applied migrations, that `rate_limit_counters` exists, and — with `--expect-empty` — that **every** business table is empty (users, sessions, identities, attempts, answers, submissions, results, grants, purchases, commerce events). Any row at all fails the run, which is the point: it is how you prove no staging fixture was copied.
+
+It also prints a **fingerprint** — a SHA-256 over the applied-migration timestamps plus the database name. That value is safe to paste into a report and is what Phase 7's isolation proof compares.
+
+Verified working against staging before production existed: staging reports `migrationsApplied: 24`, `rateLimitCountersPresent: true`, Postgres **17.6**, 66 business rows, and correctly **fails** under `--expect-empty` — so the emptiness assertion is known to discriminate rather than pass vacuously.
 
 Then run `pnpm run db:check` locally against production to confirm generated migrations match the schema.
+
+> **Version note:** staging runs Postgres **17.6** while CI's parity container is `postgres:18`. Migrations 0000–0023 apply cleanly on both, so this is not a blocker — but pick the production version deliberately rather than by default, and prefer matching staging unless there is a reason not to.
 
 **Connection strategy — two distinct strings**
 
@@ -156,10 +171,25 @@ Deploy with `PRODUCTION_WRITES_ENABLED=false`. This is the point of the phase, n
 | C6  | **No dev login exposure**                       | `/signin` shows "Masuk belum tersedia" — no username field, no form                                                      |
 | C7  | **No writes possible**                          | Any guarded action → `?error=writes_disabled`; row counts unchanged across the attempt                                   |
 | C8  | Rate limiting live                              | `rate_limit_counters` gains rows on repeated sign-in attempts                                                            |
-| C9  | No staging leakage                              | Production DB has 0 users, 0 attempts                                                                                    |
+| C9  | No staging leakage                              | `pnpm run db:verify-production -- --expect-empty` passes against production                                              |
 | C10 | Region                                          | Function region `icn1`; measure a read p50                                                                               |
 
 **Rollback:** delete the deployment. Nothing is irreversible in this phase — production holds no student data by construction.
+
+### Phase 7 — environment isolation proof (mandatory)
+
+Run the same read-only command against both environments and compare the printed `fingerprint`:
+
+```bash
+DATABASE_URL='<production>' pnpm run db:verify-production
+DATABASE_URL='<staging>'    pnpm run db:verify-production
+```
+
+- The two fingerprints **must differ.** Identical values mean production and preview resolve to the same database — a stop condition, not a warning.
+- Staging's fingerprint, captured before production existed, is **`ca232257111f693d`** (Postgres 17.6, 24 migrations, 66 business rows). Production must not report this value.
+- Cross-check the direction too: production must report **0** business rows while staging reports non-zero. If production reports 66, it is pointed at staging.
+
+Neither invocation prints a connection string, so both outputs are safe to paste into the bring-up report.
 
 ---
 

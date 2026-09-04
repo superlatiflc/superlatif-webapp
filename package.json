@@ -2,7 +2,7 @@
   "name": "superlatif-webapp",
   "version": "0.0.0",
   "private": true,
-  "description": "Superlatif Web App — program-centric EdTech platform (Kedinasan/SKD first).",
+  "description": "Superlatif Web App \u2014 program-centric EdTech platform (Kedinasan/SKD first).",
   "packageManager": "pnpm@11.20.0",
   "engines": {
     "node": ">=24.15.0 <25",
@@ -27,6 +27,7 @@
     "db:generate": "pnpm --filter @superlatif/db exec drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "pnpm --filter @superlatif/db exec drizzle-kit migrate --config drizzle.config.ts",
     "db:check": "node scripts/db-check.mjs",
+    "db:verify-production": "node packages/db/scripts/verify-production-db.mjs",
     "validate:starter": "node scripts/validate-starter.mjs",
     "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run secrets:scan && pnpm run test:unit && pnpm run test:integration && pnpm run test:contract && pnpm run contracts:validate && pnpm run check:determinism && pnpm run db:check && pnpm run validate:starter",
     "evidence:generate": "node scripts/generate-release-evidence.mjs"
