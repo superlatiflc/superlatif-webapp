@@ -1,19 +1,21 @@
 # Production Launch Plan
 
-**Baseline:** clean `main` @ `35f3b37`. Verify PASS — 704 unit / 348 integration / 30 contract. Migrations 0000–0023. All three security P0s closed. Production infrastructure does not exist.
+**Baseline:** clean `main` @ `8a1dce2`. Verify PASS — 704 unit / 348 integration / 30 contract. Migrations 0000–0023. All three security P0s closed.
 
 **Companion document:** `PRODUCTION_READINESS_AUDIT.md` carries the evidence behind every status claim here.
 
-**Nothing in this document has been executed.** Creating Supabase Production and configuring Vercel Production are execution gates.
+**Execution status (2026-09-10)**
 
-> **Who can execute Phases A and B.** Not this coding agent, and not for want of approval. The environment has no Supabase or Vercel credentials: neither CLI is installed, `SUPABASE_ACCESS_TOKEN` and `VERCEL_TOKEN` are unset, there is no `.vercel` project link, and unauthenticated probes return HTTP 401 (Supabase Management API) and HTTP 403 (Vercel API). Provisioning also spends money and creates billable resources under an account the agent cannot and should not authenticate into.
->
-> Two ways forward, both fine:
->
-> 1. **A human performs Phases A and B** in the two dashboards, following this document, then runs the verification commands below and pastes the output.
-> 2. **A human authenticates the CLIs on this machine** (`supabase login`, `vercel login`) — the agent never sees the token — after which the agent can drive Phases A–C and produce the evidence directly.
->
-> Everything else in this plan is already prepared: exact settings, the full variable inventory, and a read-only verification command that emits the Phase C and Phase 7 evidence in one shot.
+| Phase                                   | Status                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| A — Supabase Production                 | ✅ **Done** — created by a human; migrated and verified empty by the agent         |
+| Phase 7, layer 1 — database isolation   | ✅ **Done** — distinct project refs and distinct server fingerprints               |
+| B — Vercel Production                   | ⏳ **Waiting on a human** — no Vercel credentials on this machine                  |
+| C — write-frozen deploy + C1–C10        | ⏳ Blocked on B                                                                    |
+| Phase 7, layer 2 — deployment isolation | ⏳ Blocked on B                                                                    |
+| Backup / PITR (M6)                      | ⏳ WAL archiving confirmed active; whether PITR is enabled needs a dashboard check |
+
+> **Who can execute Phase B.** Not this coding agent — for want of credentials, not approval. The `vercel` CLI is not installed, `VERCEL_TOKEN` is unset, there is no `.vercel` project link, and the Vercel API returns HTTP 403 unauthenticated. Either a human configures Phase B in the dashboard using the variable table below, or a human runs `vercel login` on this machine — the agent never sees the token — and the agent then drives Phases B and C and produces the evidence directly.
 
 ---
 
@@ -66,7 +68,19 @@ P1-4 session lifecycle (sliding renewal, idle timeout, `touchSessionLastSeen`) �
 
 ---
 
-## Phase A — Supabase Production (EXECUTION GATE — not yet performed)
+## Phase A — Supabase Production (DONE — 2026-09-10)
+
+**Status: created, migrated, verified empty.** Project `superlatif-webapp-production`, ref `mfqfkxtrckacrwxltmxg`, region `ap-northeast-2` (Seoul), Postgres **17.6** — matching staging exactly. Created by a human in the Supabase dashboard; migrations applied with `pnpm run db:migrate` over the Session Pooler (port 5432), reading the connection kept locally as `PRODUCTION_DATABASE_URL` in the gitignored `apps/web/.env.local`. No connection string or password was printed at any point.
+
+**Result on production**
+
+| Check                              | Result                                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| State before migration             | 0 public tables, no `drizzle` schema — only Supabase system schemas                                      |
+| Migrations applied                 | **24**, exactly matching the repository journal (0000–0023)                                              |
+| `rate_limit_counters`              | present                                                                                                  |
+| Business rows (11 tables)          | **0** — `--expect-empty` PASS                                                                            |
+| Schema vs already-verified staging | **identical** — 76 tables, 668 columns, 199 constraints, 180 indexes, 15 enums; all catalog hashes equal |
 
 A **new, separate project**. Never reuse, fork, or restore staging.
 
@@ -85,32 +99,37 @@ A **new, separate project**. Never reuse, fork, or restore staging.
 **Verification before anything else — one command**
 
 ```bash
-DATABASE_URL='<production migration string>' pnpm run db:verify-production -- --expect-empty
+DATABASE_URL='<production migration string>' pnpm run db:verify-production -- --expect-empty --expect-ref=mfqfkxtrckacrwxltmxg
 ```
 
-This is strictly read-only and never prints the connection string or any part of it. It asserts 24 applied migrations, that `rate_limit_counters` exists, and — with `--expect-empty` — that **every** business table is empty (users, sessions, identities, attempts, answers, submissions, results, grants, purchases, commerce events). Any row at all fails the run, which is the point: it is how you prove no staging fixture was copied.
+This is strictly read-only and never prints the connection string or any part of it. It asserts that the applied migration chain **exactly matches this repository's journal** (0000–0023), that `rate_limit_counters` exists, and — with `--expect-empty` — that **every** business table is empty (users, sessions, identities, attempts, answers, submissions, results, grants, purchases, commerce events). Any row at all fails the run, which is the point: it is how you prove no staging fixture was copied.
 
-It also prints a **fingerprint** — a SHA-256 over the applied-migration timestamps plus the database name. That value is safe to paste into a report and is what Phase 7's isolation proof compares.
+It also prints two identity values, and Phase 7 compares both: `identity.projectRef` — not a secret, it is the `<ref>` in the project's public `https://<ref>.supabase.co` URL — and `identity.serverFingerprint`, a hash of the address of the Postgres server that actually answered. `--expect-ref=<ref>` turns "pointed at the wrong project" into a hard failure before the tool even connects.
 
-Verified working against staging before production existed: staging reports `migrationsApplied: 24`, `rateLimitCountersPresent: true`, Postgres **17.6**, 66 business rows, and correctly **fails** under `--expect-empty` — so the emptiness assertion is known to discriminate rather than pass vacuously.
+> **Correction (2026-09-10).** Until this revision the command printed a `fingerprint` hashed from applied-migration timestamps, and this document said it would differ between environments. It does not. drizzle records each migration's _authoring_ timestamp from `_journal.json` in `created_at`, so every database migrated from this repository produces the same value — during bring-up, production and staging both reported `ca232257111f693d`. The claim had only ever been checked against one environment. Postgres's `system_identifier` was tested as a replacement and is also identical across Supabase projects, which are cloned from one base image. The field is removed. The migration timestamps are now used for what they genuinely prove: that the applied chain matches this repository exactly.
 
-Then run `pnpm run db:check` locally against production to confirm generated migrations match the schema.
+Verified against staging before production existed: 24 migrations, `rate_limit_counters` present, Postgres **17.6**, 66 business rows, and it correctly **fails** under `--expect-empty` — so the emptiness assertion is known to discriminate rather than pass vacuously.
 
-> **Version note:** staging runs Postgres **17.6** while CI's parity container is `postgres:18`. Migrations 0000–0023 apply cleanly on both, so this is not a blocker — but pick the production version deliberately rather than by default, and prefer matching staging unless there is a reason not to.
+`pnpm run db:check` needs no database connection: it compares `packages/db/src/schema` against the committed migrations, so there is nothing to run "against production". It passed on this commit inside `pnpm run verify`. The production-side equivalents are `migrationsMatchRepository: true` above and the schema-catalog comparison in the results table.
+
+> **Version note:** production was created on Postgres **17.6**, matching staging. CI's parity container is `postgres:18`; migrations 0000–0023 apply cleanly on both.
 
 **Connection strategy — two distinct strings**
 
-| Use                                    | Port   | Mode               | Notes                                                                |
-| -------------------------------------- | ------ | ------------------ | -------------------------------------------------------------------- |
-| Migrations (one-off, from a laptop/CI) | `5432` | session            | Direct connection; required for DDL                                  |
-| Vercel runtime                         | `6543` | transaction pooler | Verified compatible with the current `postgres.js` config on staging |
+| Use                                 | Port   | Mode               | Evidence                                                                                                                                                                                                                              |
+| ----------------------------------- | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Migrations (one-off, from a laptop) | `5432` | Session Pooler     | Used for the 2026-09-10 production migration. A direct connection (`db.<ref>.supabase.co`) also works where the network supports IPv6                                                                                                 |
+| Vercel runtime                      | `6543` | Transaction Pooler | Tested 2026-09-10 against production with the app's own `createDatabaseClient` (prepared statements ON, `max: 5`): **71/71** read queries OK — 40 sequential, 30 concurrent across three statement shapes, one transaction — 0 errors |
+
+The runtime row previously said "verified compatible on staging" with no recorded evidence. It now has evidence, and that matters: `createDatabaseClient` does not set `prepare: false`, and older Supabase poolers rejected named prepared statements in transaction mode. If a runtime error ever mentions a prepared statement, switch the runtime string to the Session Pooler (5432) first — it is fully compatible — and investigate second.
 
 The runtime string must **never** be a staging string. Consider `max: 1–2` for serverless (P2-2) at the same time.
 
 **Backups**
 
+- **Observed 2026-09-10 (read-only):** `archive_mode = on` and WAL archiving is healthy on production — 17 segments shipped, 0 failures, last shipped minutes before the check. That shows Supabase's backup pipeline is running. It does **not** show that PITR is enabled or what restore window exists; both are plan-dependent and visible only in the dashboard (Project → Database → Backups).
 - Confirm automated backups + PITR are actually enabled and note the retention window.
-- Rehearse **one** restore into a scratch project and record RPO/RTO actuals against dok 30 §12's ≤15 min / ≤4 h. This is M6; do it before students, not after.
+- Rehearse **one** restore into a scratch project and record RPO/RTO actuals against dok 30 §12's ≤15 min / ≤4 h. This is M6; do it before students, not after. A restore must never target the production project itself.
 
 ---
 
@@ -178,16 +197,27 @@ Deploy with `PRODUCTION_WRITES_ENABLED=false`. This is the point of the phase, n
 
 ### Phase 7 — environment isolation proof (mandatory)
 
-Run the same read-only command against both environments and compare the printed `fingerprint`:
+Two layers, because they prove different things.
+
+**Layer 1 — the two connection targets are different databases (DONE, 2026-09-10).** Run the same read-only command against both in the same session and compare `identity`:
 
 ```bash
-DATABASE_URL='<production>' pnpm run db:verify-production
-DATABASE_URL='<staging>'    pnpm run db:verify-production
+DATABASE_URL='<production>' pnpm run db:verify-production -- --expect-ref=mfqfkxtrckacrwxltmxg
+DATABASE_URL='<staging>'    pnpm run db:verify-production -- --expect-ref=mpjvqtozvhcckgswtunt
 ```
 
-- The two fingerprints **must differ.** Identical values mean production and preview resolve to the same database — a stop condition, not a warning.
-- Staging's fingerprint, captured before production existed, is **`ca232257111f693d`** (Postgres 17.6, 24 migrations, 66 business rows). Production must not report this value.
-- Cross-check the direction too: production must report **0** business rows while staging reports non-zero. If production reports 66, it is pointed at staging.
+|                           | Production             | Staging                |
+| ------------------------- | ---------------------- | ---------------------- |
+| `projectRef`              | `mfqfkxtrckacrwxltmxg` | `mpjvqtozvhcckgswtunt` |
+| `serverFingerprint`       | `09e02743ef64036b`     | `48ebeb67a9da1cd1`     |
+| Business rows             | **0**                  | 66                     |
+| Migrations / matches repo | 24 / yes               | 24 / yes               |
+
+Both identity values differ, and the data points the right way — production empty, staging populated. Either identity value matching is a stop condition. The `--expect-ref` guard was also exercised negatively: the staging connection run with `--expect-ref=mfqfkxtrckacrwxltmxg` is refused **before connecting**.
+
+`serverFingerprint` is point-in-time — Supabase can move a project to a new host — so compare the two environments in the same session rather than against the values recorded here. `projectRef` is stable.
+
+**Layer 2 — each deployment reaches the right database (PENDING Vercel configuration).** Layer 1 proves two connection strings reach two different databases. It does not prove which string each Vercel environment was given. That proof comes from Vercel: the `DATABASE_URL` in the **Production** scope must carry ref `mfqfkxtrckacrwxltmxg`, and the one in the **Preview** scope must carry `mpjvqtozvhcckgswtunt`. Check the ref only — never display the value — then confirm behaviourally that production still reports 0 business rows after traffic while staging keeps its data.
 
 Neither invocation prints a connection string, so both outputs are safe to paste into the bring-up report.
 
