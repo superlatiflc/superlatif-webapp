@@ -20,6 +20,7 @@ export async function registerNode(): Promise<void> {
   const { CORE_REQUIRED_FOR_STARTUP, EnvValidationError, loadCoreEnv } =
     await import("@superlatif/contracts");
   const { createLogger } = await import("@superlatif/observability");
+  const { sanitizeEnvViolations } = await import("./deployment-config.ts");
 
   const logger = createLogger();
 
@@ -27,7 +28,12 @@ export async function registerNode(): Promise<void> {
     loadCoreEnv();
   } catch (error) {
     if (error instanceof EnvValidationError) {
-      logger.fatal("startup.config_invalid", { violations: error.violations });
+      // parseEnv's messages echo raw values ("received ..."), which for a
+      // malformed DATABASE_URL would be a connection string with its
+      // password. Log only the sanitized form.
+      logger.fatal("startup.config_invalid", {
+        violations: sanitizeEnvViolations(error.violations, process.env),
+      });
     } else {
       logger.fatal("startup.config_check_failed_unexpectedly", { error });
     }
@@ -35,8 +41,13 @@ export async function registerNode(): Promise<void> {
   }
 
   // P0-3: an enabled-but-unconfigured limiter, or a limiter switched off in
-  // staging/production, must stop the process rather than serve unprotected.
-  // Only the message is logged - never the secret, and never its length.
+  // staging/production, must not serve unprotected. Only the message is
+  // logged - never the secret, and never its length.
+  //
+  // process.exit below stops a long-lived `next start` server. It does NOT
+  // stop a Vercel deployment (see ../../instrumentation.ts): there, the same
+  // rules are enforced at build time by ./deployment-config.ts, which is what
+  // actually keeps a misconfigured deployment from going live.
   try {
     const { assertRateLimitConfigured } = await import("./rate-limit.ts");
     assertRateLimitConfigured();

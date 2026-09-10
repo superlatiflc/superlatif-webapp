@@ -305,7 +305,7 @@ export const ENV_SPEC = {
     defaultValue: "true",
     secret: false,
     description:
-      "Rate limiting. Safe default is on, not off. When on outside local/test, RATE_LIMIT_HASH_SECRET must also be set - apps/web fails startup rather than serving unprotected.",
+      "Rate limiting. Safe default is on, not off. When on outside local/test, RATE_LIMIT_HASH_SECRET must also be set - a hosted (Vercel, staging, or production) build of apps/web fails rather than deploying unprotected.",
   },
   RATE_LIMIT_HASH_SECRET: {
     type: "string",

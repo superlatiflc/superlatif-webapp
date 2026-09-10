@@ -1,16 +1,16 @@
 # Production Readiness Audit
 
-**Baseline:** clean `main` @ `35f3b37` (PR #40 merged). `pnpm run verify` PASS — 704 unit / 348 integration / 30 contract. Migrations 0000–0023. Supabase + Vercel staging verified. **Production infrastructure does not exist.**
+**Baseline:** `main` after the production hardening PR. Migrations 0000–0023. **Production infrastructure exists and is live in a write-frozen state** — see `PRODUCTION_LAUNCH_PLAN.md` for the bring-up evidence.
 
-**Status:** originally written at `704aed9` before any P0 was closed. Revised after PRs #38, #39, #40. Areas whose repository state changed were re-audited against current `main`; findings that could not have changed were not re-derived.
+**Status:** originally written at `704aed9` before any P0 was closed. Revised after PRs #38, #39, #40, and again after the production bring-up (2026-09-10). Areas whose repository state changed were re-audited against current `main`; findings that could not have changed were not re-derived.
 
 ---
 
 ## Verdict
 
-**Infrastructure: READY.** All three P0 blockers are closed with evidence. Nothing remaining blocks _creating_ production infrastructure in the write-frozen posture described below.
+**Infrastructure: READY — and live, write-frozen.** Production (`https://superlatif-webapp-web.vercel.app`) runs on its own Supabase project with `PRODUCTION_WRITES_ENABLED=false`; Preview runs on staging; isolation between them is proven by configuration and by behaviour. PITR is still unconfirmed (P1-7).
 
-**Real-user launch: NOT READY.** That is a separate question, and the answer is not close. A production student cannot log in at all today, and no purchase can reach the application. See §Real-user launch blockers — this is the finding that matters most in this revision.
+**Real-user launch: NOT READY.** Unchanged, and still the finding that matters most: a production student cannot sign in (M1), no purchase can reach the application (M2), and there is no catalogue (M3). See §Real-user launch blockers.
 
 ---
 
@@ -58,7 +58,8 @@ Each re-verified against current `main`.
 - **P1-4. Session lifecycle gaps.** Fixed 8h TTL, no sliding renewal or idle timeout; `touchSessionLastSeen` still never called; `deviceLabel`/`ipPrefix` never populated. **Unchanged.**
 - **P1-5. CSRF contract vs implementation.** `contracts/openapi.yaml` still declares `CsrfToken` on mutating endpoints that do not exist as HTTP routes; the app uses Server Actions, whose native Origin check mitigates this in practice. **Unchanged — divergence, not an exploitable hole.**
 - **P1-6. Migration CI covers only the empty-database half.** CI still applies migrations only to an empty Postgres 18. CLAUDE.md requires empty **and** previous-version. I verified 0023 against a previous-version schema manually during PR #39, but that check is not in CI. **Unchanged.**
-- **P1-7. Backup/recovery documented but unproven.** dok 30 §12 specifies PITR, quarterly restore tests, RPO ≤15min / RTO ≤4h. Nothing exercised; Supabase capability is plan-dependent. **Unchanged, and now directly relevant** — see the launch plan's Supabase section.
+- **P1-7. Backup/recovery documented but unproven.** dok 30 §12 specifies PITR, quarterly restore tests, RPO ≤15min / RTO ≤4h. Nothing exercised. **Production now exists:** WAL archiving is on and healthy there (read-only check, 2026-09-10), but whether PITR is enabled, and with what retention, is still **unconfirmed** — it is plan-dependent and visible only in the Supabase dashboard.
+- **P1-8 (found in the production bring-up — closed by the production hardening PR).** The startup configuration fail-safe did not work on Vercel. `register-node.ts` calls `process.exit(1)`, which stops a long-lived `next start` server but cannot un-publish a Vercel deployment: the hook runs inside each function instance after the deployment is live. Observed: staging served for days with no `RATE_LIMIT_HASH_SECRET` and returned 500 on every sign-in. Fix: the same rules are enforced at build time from `next.config.ts` (`apps/web/src/lib/deployment-config.ts`), where a failure means the deployment never goes live and the previous one keeps serving. Violation text is sanitized, so no secret value reaches build or runtime logs — `parseEnv`'s own messages echo raw values, which for a malformed `DATABASE_URL` would have included its password.
 
 ---
 
@@ -67,7 +68,7 @@ Each re-verified against current `main`.
 - **P2-1.** Review N+1 (~15–20 sequential queries). Same-region latency masks it (~366 ms). Not a launch blocker.
 - **P2-2.** `postgres.js` pool `max: 5` per instance, untuned for serverless.
 - **P2-3.** `@superlatif/observability`'s `redact()` still unused (commerce payload redaction is separately wired and correct).
-- **P2-4.** `/preview/*` mock routes still ship to production builds, gated only by a demo cookie rather than `APP_ENV`. **Worth doing before a public production domain exists** — it is cheap and removes a confusing public surface.
+- **P2-4.** ~~`/preview/*` mock routes ship to production builds~~ — **closed by the production hardening PR.** `/preview/*` returns 404 when `APP_ENV=production` (a segment layout gate plus guarded Server Actions); it stays available in development and Preview.
 - **P2-5.** ~~Stale `DATABASE_URL` description~~ — **re-checked: the stale sentence is gone.** Closed.
 - **P2-6.** Staging `DATABASE_URL` password contains a literal unescaped `@`. Normalise before minting production credentials.
 - **P2-7.** No batch catalogue; `/tryouts` renders an honest "not available" state.
