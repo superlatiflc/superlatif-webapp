@@ -1,21 +1,30 @@
 # Production Launch Plan
 
-**Baseline:** clean `main` @ `8a1dce2`. Verify PASS — 704 unit / 348 integration / 30 contract. Migrations 0000–0023. All three security P0s closed.
+**Baseline:** `main` after the production hardening PR. Migrations 0000–0023 (no migration since). All three security P0s closed.
 
 **Companion document:** `PRODUCTION_READINESS_AUDIT.md` carries the evidence behind every status claim here.
 
 **Execution status (2026-09-10)**
 
-| Phase                                   | Status                                                                             |
-| --------------------------------------- | ---------------------------------------------------------------------------------- |
-| A — Supabase Production                 | ✅ **Done** — created by a human; migrated and verified empty by the agent         |
-| Phase 7, layer 1 — database isolation   | ✅ **Done** — distinct project refs and distinct server fingerprints               |
-| B — Vercel Production                   | ⏳ **Waiting on a human** — no Vercel credentials on this machine                  |
-| C — write-frozen deploy + C1–C10        | ⏳ Blocked on B                                                                    |
-| Phase 7, layer 2 — deployment isolation | ⏳ Blocked on B                                                                    |
-| Backup / PITR (M6)                      | ⏳ WAL archiving confirmed active; whether PITR is enabled needs a dashboard check |
+| Phase                                     | Status                                                                                                      |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| A — Supabase Production                   | ✅ **Done** — `superlatif-webapp-production` (`mfqfkxtrckacrwxltmxg`), migrated and verified empty          |
+| B — Vercel Production                     | ✅ **Done** — project `superlatif-webapp-web`; Production and Preview variables split into separate records |
+| C — write-frozen deploy + C1–C10          | ✅ **Done** — live at `https://superlatif-webapp-web.vercel.app`, `icn1`, `PRODUCTION_WRITES_ENABLED=false` |
+| Phase 7 — database + deployment isolation | ✅ **Done** — Production → production DB, Preview → staging DB, proven by configuration and by behaviour    |
+| Backup / PITR (M6)                        | ⏳ WAL archiving active; **PITR unconfirmed** — needs a dashboard check (Project → Database → Backups)      |
 
-> **Who can execute Phase B.** Not this coding agent — for want of credentials, not approval. The `vercel` CLI is not installed, `VERCEL_TOKEN` is unset, there is no `.vercel` project link, and the Vercel API returns HTTP 403 unauthenticated. Either a human configures Phase B in the dashboard using the variable table below, or a human runs `vercel login` on this machine — the agent never sees the token — and the agent then drives Phases B and C and produces the evidence directly.
+> **Infrastructure is READY in a write-frozen state. That is not a launch.** Real students still cannot sign in (M1), a purchase still reaches nothing (M2), and there is no catalogue to grant access to (M3).
+
+### What the bring-up actually established
+
+- **The Vercel Production URL is the real production deployment now.** `https://superlatif-webapp-web.vercel.app` serves `main` with Production-only variables: `APP_ENV=production`, `PRODUCTION_WRITES_ENABLED=false`, `RATE_LIMIT_ENABLED=true`, a production-only rate-limit secret, and the production database over the Transaction Pooler. Until the bring-up, that same URL served staging.
+- **Staging lives in Preview.** The seven original shared records were retargeted to Preview only, values untouched, plus a fresh Preview-only rate-limit secret. Preview deployments sit behind Vercel login (SSO), so there is no longer a stable public staging URL; a branch domain would give one if testers need it.
+- **Isolation is proven two ways.** Configuration: no variable spans both scopes, and the two `DATABASE_URL` records are distinct. Behaviour: Production rejects a staging-only session, and its traffic moves the _production_ database's `user_sessions` counters; Preview accepts the staging session, and a real sign-in there added one session to staging and none to production.
+- **C1–C10 passed, with two caveats stated plainly.** _C8:_ no production user was created — this milestone forbids it — and every guarded exam action checks the session before the write guard, so the kill-switch branch itself is not reachable on real production yet; it was proven against real Postgres with `APP_ENV=production` in the PR #40 incident simulation. _C2:_ see the correction below.
+- **Correction — the startup fail-safe did not work on Vercel.** This plan previously said the app "refuses to boot" without `RATE_LIMIT_HASH_SECRET`. That was only ever tested on a local `next start` process. On Vercel the startup hook runs inside each function instance after the deployment is already live, and `process.exit` cannot un-publish it: staging served for days with the secret missing and returned 500 on every sign-in. The check now runs at **build** time (`apps/web/src/lib/deployment-config.ts`, enforced from `next.config.ts`), where a failure means the deployment never goes live and the previous one keeps serving.
+- **`akademi.superlatif.id` is occupied** by an existing nginx site ("Superlatif", `202.10.36.65`). It must not be repointed without a separate decision.
+- **`/preview/*` is closed in production** by the production hardening PR (404). It stays available in development and in Preview.
 
 ---
 
@@ -64,7 +73,7 @@ P1-4 session lifecycle (sliding renewal, idle timeout, `touchSessionLastSeen`) �
 
 **Explicitly not launch blockers:** the review N+1 (same-region latency masks it; it is authenticated and owner-scoped), and every cosmetic/doc item. Do not let them delay anything.
 
-**One cheap exception worth doing with the production domain:** P2-4, excluding `/preview/*` from production builds. It is a small change and avoids a confusing public surface on a real domain.
+**The one cheap exception — done:** P2-4, keeping `/preview/*` out of production, shipped in the production hardening PR (404 when `APP_ENV=production`, still available in development and Preview). It is a small change and avoids a confusing public surface on a real domain.
 
 ---
 
@@ -133,40 +142,41 @@ The runtime string must **never** be a staging string. Consider `max: 1–2` for
 
 ---
 
-## Phase B — Vercel Production (EXECUTION GATE — not yet performed)
+## Phase B — Vercel Production (DONE — 2026-09-10)
 
-| Setting           | Value                                                | Why                                                           |
-| ----------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
-| Root Directory    | `apps/web`                                           | Matches the monorepo layout staging uses                      |
-| Framework         | Next.js (16.3.3)                                     | Pinned in `apps/web/package.json`                             |
-| Node              | **24.x**                                             | `engines.node: >=24.15.0 <25`                                 |
-| Package manager   | pnpm 11.20.0                                         | `packageManager` field                                        |
-| Function region   | **`icn1` (Seoul)**                                   | Must match Supabase; this is the single biggest latency lever |
-| Production branch | `main`                                               |                                                               |
-| Domain            | Dedicated production hostname, distinct from staging |                                                               |
+| Setting           | Value                                                 | Why                                                                                                 |
+| ----------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Project           | `superlatif-webapp-web` (team `superlatifs-projects`) | The existing project; no second project was needed                                                  |
+| Root Directory    | `apps/web`                                            | Matches the monorepo layout                                                                         |
+| Framework         | Next.js (16.3.3)                                      | Pinned in `apps/web/package.json`                                                                   |
+| Node              | **24.x**                                              | `engines.node: >=24.15.0 <25`                                                                       |
+| Package manager   | pnpm 11.20.0                                          | `packageManager` field                                                                              |
+| Function region   | **`icn1` (Seoul)**                                    | Must match Supabase; this is the single biggest latency lever                                       |
+| Production branch | `main`                                                |                                                                                                     |
+| Domain            | `https://superlatif-webapp-web.vercel.app` for now    | `akademi.superlatif.id` is occupied by an existing site; choosing a hostname is a separate decision |
 
 **Environment separation — the rule that must not be broken**
 
 - **Production** scope: production Supabase only.
 - **Preview** scope: staging Supabase only, `APP_ENV=staging`.
-- Production must **never** point at the staging database, and preview must never point at production. Set these in separate Vercel environment scopes, not a shared one.
+- Production must **never** point at the staging database, and preview must never point at production. **Done:** every variable is now a separate record per scope, and none spans both.
 
 ### Production environment variables
 
-Six are required for startup (`CORE_REQUIRED_FOR_STARTUP`); the rest are required by behaviour this repository now enforces. **No values here.**
+Six are required by `CORE_REQUIRED_FOR_STARTUP`; the rest are required by behaviour this repository enforces. **All of them are checked when a hosted build runs** (`apps/web/src/lib/deployment-config.ts`, from `next.config.ts`): a missing or invalid one fails the build, so the deployment never goes live. **No values here.**
 
-| Variable                    | Production value                          | Notes                                                                                                            |
-| --------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `APP_ENV`                   | `production`                              | Gates the kill switch and disables the dev sign-in seam                                                          |
-| `APP_BASE_URL`              | production URL                            | Required at startup                                                                                              |
-| `ADMIN_BASE_URL`            | production admin URL                      | Required at startup                                                                                              |
-| `API_BASE_URL`              | production API URL                        | Required at startup                                                                                              |
-| `WORKER_CONCURRENCY`        | e.g. `2`                                  | Required at startup                                                                                              |
-| `LOG_LEVEL`                 | `info`                                    | Required at startup                                                                                              |
-| `DATABASE_URL`              | production pooler string                  | **Never staging.** URL-encode reserved chars                                                                     |
-| `RATE_LIMIT_ENABLED`        | `true`                                    | Startup refuses `false` when `APP_ENV=production`                                                                |
-| `RATE_LIMIT_HASH_SECRET`    | **new production-only secret**, ≥16 chars | Startup refuses to boot without it. Generate fresh; never reuse staging's, and never reuse a session/auth secret |
-| `PRODUCTION_WRITES_ENABLED` | **`false`**                               | Deliberate. See Phase C                                                                                          |
+| Variable                    | Production value                          | Notes                                                                                                                  |
+| --------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                   | `production`                              | Gates the kill switch and disables the dev sign-in seam. A Vercel build that is not `staging`/`production` fails       |
+| `APP_BASE_URL`              | production URL                            | Required — the build fails without it                                                                                  |
+| `ADMIN_BASE_URL`            | production admin URL                      | Required — the build fails without it                                                                                  |
+| `API_BASE_URL`              | production API URL                        | Required — the build fails without it                                                                                  |
+| `WORKER_CONCURRENCY`        | `2`                                       | Required — the build fails without it                                                                                  |
+| `LOG_LEVEL`                 | `info`                                    | Required — the build fails without it                                                                                  |
+| `DATABASE_URL`              | production Transaction Pooler string      | **Never staging.** Required for a staging/production build. URL-encode reserved chars                                  |
+| `RATE_LIMIT_ENABLED`        | `true`                                    | A staging/production build fails if it is `false`                                                                      |
+| `RATE_LIMIT_HASH_SECRET`    | **new production-only secret**, ≥16 chars | A staging/production build fails without it. Generated fresh; never reuse staging's, never reuse a session/auth secret |
+| `PRODUCTION_WRITES_ENABLED` | **`false`**                               | Deliberate. See Phase C                                                                                                |
 
 All other flags (`FEATURE_*`, `SKD_PRODUCTION_ACTIVATION`, `COMMERCE_RECONCILIATION_ENABLED`, `DEVICE_LEASE_ENFORCEMENT`) stay **unset**, which means `false` in production — their declared safe default.
 
@@ -180,18 +190,18 @@ Deploy with `PRODUCTION_WRITES_ENABLED=false`. This is the point of the phase, n
 
 **Verification checklist**
 
-| #   | Check                                           | Expected                                                                                                                 |
-| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| C1  | Process boots                                   | `startup.config_validated` in logs; no `startup.rate_limit_misconfigured`                                                |
-| C2  | Deliberately omit `RATE_LIMIT_HASH_SECRET` once | Process **exits**, logs `startup.rate_limit_misconfigured`. Then restore it. Proves the fail-safe on real infrastructure |
-| C3  | Database reachable                              | A read path returns 200                                                                                                  |
-| C4  | Migrations                                      | 24 rows in `drizzle.__drizzle_migrations`                                                                                |
-| C5  | Read-only boot                                  | `/`, `/signin`, `/tryouts` render                                                                                        |
-| C6  | **No dev login exposure**                       | `/signin` shows "Masuk belum tersedia" — no username field, no form                                                      |
-| C7  | **No writes possible**                          | Any guarded action → `?error=writes_disabled`; row counts unchanged across the attempt                                   |
-| C8  | Rate limiting live                              | `rate_limit_counters` gains rows on repeated sign-in attempts                                                            |
-| C9  | No staging leakage                              | `pnpm run db:verify-production -- --expect-empty` passes against production                                              |
-| C10 | Region                                          | Function region `icn1`; measure a read p50                                                                               |
+| #   | Check                     | Expected                                                                                                                                                                                                                                                                                                             |
+| --- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Deployment boots          | Every route answers; no 5xx in the deployment's logs                                                                                                                                                                                                                                                                 |
+| C2  | Configuration complete    | **Enforced at build** (`deployment-config.ts`): a hosted build missing a required variable fails and never goes live. Proven with a real enforced `next build` — fails without `RATE_LIMIT_HASH_SECRET` (no secret in the output), passes when complete. The earlier "process exits" expectation was false on Vercel |
+| C3  | Database reachable        | A read path returns 200                                                                                                                                                                                                                                                                                              |
+| C4  | Migrations                | 24 rows in `drizzle.__drizzle_migrations`                                                                                                                                                                                                                                                                            |
+| C5  | Read-only boot            | `/`, `/signin`, `/tryouts` render                                                                                                                                                                                                                                                                                    |
+| C6  | **No dev login exposure** | `/signin` shows "Masuk belum tersedia" — no username field, no form                                                                                                                                                                                                                                                  |
+| C7  | **No writes possible**    | Any guarded action → `?error=writes_disabled`; row counts unchanged across the attempt                                                                                                                                                                                                                               |
+| C8  | Rate limiting live        | `rate_limit_counters` gains rows on repeated sign-in attempts                                                                                                                                                                                                                                                        |
+| C9  | No staging leakage        | `pnpm run db:verify-production -- --expect-empty` passes against production                                                                                                                                                                                                                                          |
+| C10 | Region                    | Function region `icn1`; measure a read p50                                                                                                                                                                                                                                                                           |
 
 **Rollback:** delete the deployment. Nothing is irreversible in this phase — production holds no student data by construction.
 
@@ -217,7 +227,7 @@ Both identity values differ, and the data points the right way — production em
 
 `serverFingerprint` is point-in-time — Supabase can move a project to a new host — so compare the two environments in the same session rather than against the values recorded here. `projectRef` is stable.
 
-**Layer 2 — each deployment reaches the right database (PENDING Vercel configuration).** Layer 1 proves two connection strings reach two different databases. It does not prove which string each Vercel environment was given. That proof comes from Vercel: the `DATABASE_URL` in the **Production** scope must carry ref `mfqfkxtrckacrwxltmxg`, and the one in the **Preview** scope must carry `mpjvqtozvhcckgswtunt`. Check the ref only — never display the value — then confirm behaviourally that production still reports 0 business rows after traffic while staging keeps its data.
+**Layer 2 — each deployment reaches the right database (DONE, 2026-09-10).** Layer 1 proves two connection strings reach two different databases; layer 2 proves which one each Vercel environment was given. Configuration: the Production `DATABASE_URL` record was written from a value hard-asserted to ref `mfqfkxtrckacrwxltmxg`, the Preview record is the original staging record left untouched, and no variable spans both scopes. Behaviour: a session that exists only in staging is **rejected** by Production (307 → `/signin`) and **accepted** by Preview (200); Production traffic moved the production database's `user_sessions` scan counter from 8 to 16; a real sign-in on Preview added one session to staging and none to production. Every value involved is a sensitive variable that cannot be read back, which is why the proof is behavioural — no value was ever displayed.
 
 Neither invocation prints a connection string, so both outputs are safe to paste into the bring-up report.
 

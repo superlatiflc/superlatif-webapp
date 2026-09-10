@@ -21,6 +21,7 @@ import {
   type RateLimitScope,
 } from "@superlatif/domain/rate-limit";
 import { getDb } from "./db.ts";
+import { rateLimitConfigViolation } from "./deployment-config.ts";
 
 /**
  * Thrown when a caller exceeds a limit. Carries NO counter value, bucket key,
@@ -87,19 +88,17 @@ function requireHashSecret(): string {
 }
 
 /**
- * Startup assertion, called from instrumentation. Fails the process rather
- * than letting a staging/production deployment come up unprotected.
+ * Runtime assertion, called from instrumentation. Delegates to the exact rule
+ * the build-time gate uses (deployment-config.ts), so build time and run time
+ * cannot disagree about what counts as misconfigured.
+ *
+ * On a long-lived `next start` server a failure here stops the process. On
+ * Vercel it cannot stop the deployment - refusing a misconfigured deployment
+ * is the build gate's job - so this is the second line of defence.
  */
 export function assertRateLimitConfigured(): void {
-  if (!isEnabled()) {
-    if (!isControlledNonProductionEnv()) {
-      throw new RateLimitMisconfiguredError(
-        "RATE_LIMIT_ENABLED=false is not permitted when APP_ENV is staging or production",
-      );
-    }
-    return;
-  }
-  requireHashSecret();
+  const violation = rateLimitConfigViolation(process.env);
+  if (violation) throw new RateLimitMisconfiguredError(violation);
 }
 
 /**
