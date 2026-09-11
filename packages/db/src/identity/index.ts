@@ -15,8 +15,10 @@ export {
 } from "./repository.ts";
 
 export {
+  isWellFormedSessionId,
   performDeterministicLogin,
   revokeSessionById,
+  revokeSessionWithSecret,
   validateSession,
   type AuditLogger,
   type DeterministicLoginDeps,

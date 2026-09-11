@@ -183,24 +183,29 @@ export const ENV_SPEC = {
   },
 
   // --- WordPress/Sejoli bridge - production use requires OD-01/OD-02 evidence ---
+  // The three WP_BRIDGE_* values are required together whenever
+  // FEATURE_STUDENT_LOGIN=true on a hosted deployment (enforced at build time
+  // by apps/web/src/lib/deployment-config.ts, ADR-072).
   WP_BRIDGE_BASE_URL: {
     type: "url",
     requirement: "optional-no-default",
     secret: false,
-    description: "WordPress bridge base URL.",
+    description: "WordPress site root the superlatif-app-bridge plugin runs on, e.g. https://superlatif.id.",
   },
   WP_BRIDGE_CLIENT_ID: {
     type: "string",
     requirement: "optional-no-default",
     secret: false,
-    description: "Bridge client ID; not a credential.",
+    description:
+      "This deployment's client ID in the bridge plugin's client list; also the audience codes are bound to. Not a credential.",
   },
   WP_BRIDGE_CLIENT_SECRET: {
     type: "string",
     requirement: "optional-no-default",
     secret: true,
-    minLength: 16,
-    description: "Bridge client secret.",
+    minLength: 32,
+    description:
+      "Dedicated HMAC key shared with the bridge plugin for this client only. Never reused across environments or for any other purpose.",
   },
   SEJOLI_WEBHOOK_SIGNING_SECRET: {
     type: "string",
@@ -359,6 +364,16 @@ export const ENV_SPEC = {
     secret: false,
     description: "Production-sensitive capability flag; must default off.",
   },
+  FEATURE_STUDENT_LOGIN: {
+    type: "boolean",
+    requirement: "optional-default",
+    defaultValue: "false",
+    secret: false,
+    description:
+      "Production student sign-in through the WordPress one-time bridge (M1). Permits ONLY identity/session " +
+      "writes (user, external identity, identity conflict, session create/revoke) and is independent of " +
+      "PRODUCTION_WRITES_ENABLED, which keeps freezing exam and business writes (ADR-072).",
+  },
   FEATURE_NOTIFICATIONS: {
     type: "boolean",
     requirement: "optional-default",
@@ -378,7 +393,9 @@ export const ENV_SPEC = {
     requirement: "optional-default",
     defaultValue: "false",
     secret: false,
-    description: "Master switch for production-effect writes.",
+    description:
+      "Master switch for production-effect exam and business writes. Student sign-in writes are governed " +
+      "separately by FEATURE_STUDENT_LOGIN (ADR-072); session revocation is never frozen.",
   },
 
   // --- Test-only ---
@@ -406,6 +423,7 @@ export const PRODUCTION_SENSITIVE_FLAG_NAMES: readonly EnvName[] = [
   "FEATURE_EXAM_ENGINE",
   "FEATURE_LEADERBOARD",
   "FEATURE_NOTIFICATIONS",
+  "FEATURE_STUDENT_LOGIN",
   "SKD_PRODUCTION_ACTIVATION",
   "PRODUCTION_WRITES_ENABLED",
 ];

@@ -15,3 +15,5 @@ export {
   type IdentityLinkCandidate,
   type IdentityLinkDecision,
 } from "./identity-linking.ts";
+
+export { WORDPRESS_LOGIN_PROVIDER, WORDPRESS_SUBJECT_PATTERN } from "./providers.ts";

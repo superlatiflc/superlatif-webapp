@@ -174,6 +174,43 @@ export async function enforceSignInRateLimit(handle: string, now = new Date()): 
   );
 }
 
+/**
+ * WordPress bridge sign-in, BEFORE the exchange (ADR-072). Reuses the
+ * per-network sign-in bucket: the bridge callback is the same kind of
+ * endpoint as the dev sign-in it replaces, and sharing the budget means
+ * alternating between the two paths cannot double an attacker's allowance.
+ * Runs before the server-to-server call, so a flood of forged codes is
+ * stopped here and never reaches WordPress.
+ */
+export async function enforceBridgeSignInRateLimit(now = new Date()): Promise<void> {
+  if (!isEnabled()) return;
+  await enforce(
+    "signin_client",
+    buildBucketKey("signin_client", await clientFingerprint("signin_client")),
+    now,
+  );
+}
+
+/**
+ * AFTER a successful exchange, per WordPress account: bounds how many
+ * sessions one account can mint (a leaked WordPress password, or a script
+ * looping the flow). Keyed by the HMAC of a provider-prefixed subject, so it
+ * can never collide with a dev handle and the raw WordPress user ID is never
+ * stored.
+ */
+export async function enforceBridgeSubjectRateLimit(subject: string, now = new Date()): Promise<void> {
+  if (!isEnabled()) return;
+  const secret = requireHashSecret();
+  await enforce(
+    "signin_handle",
+    buildBucketKey(
+      "signin_handle",
+      fingerprint(secret, "signin_handle", normalizeHandle(`wordpress:${subject}`)),
+    ),
+    now,
+  );
+}
+
 /** User-keyed: a learner's own reload/resume budget, independent of network. */
 export async function enforceAttemptStartRateLimit(userId: string, now = new Date()): Promise<void> {
   if (!isEnabled()) return;

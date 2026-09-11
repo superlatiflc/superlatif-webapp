@@ -27,6 +27,7 @@ describe("ENV_SPEC self-consistency", () => {
       "FEATURE_EXAM_ENGINE",
       "FEATURE_LEADERBOARD",
       "FEATURE_NOTIFICATIONS",
+      "FEATURE_STUDENT_LOGIN",
       "SKD_PRODUCTION_ACTIVATION",
       "PRODUCTION_WRITES_ENABLED",
     ] as const;

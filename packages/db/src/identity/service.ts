@@ -46,6 +46,17 @@ export interface DeterministicLoginInput {
   readonly deviceLabel?: string | null;
   readonly ipPrefix?: string | null;
   readonly userAgentFamily?: string | null;
+  /**
+   * The session this browser presented when it started signing in, if any
+   * (ADR-072 session rotation). It is REVOKED - never reused - in the same
+   * transaction that issues the new session, so a sign-in always leaves
+   * exactly one live session in this browser and a pre-planted cookie can
+   * never survive authentication. Revoked only when its secret matches: a
+   * forged cookie naming someone else's session ID cannot be used to sign
+   * them out. This field can only ever END a session; ADR-046's fixation
+   * guarantee (no caller-chosen session is ever honoured) is unchanged.
+   */
+  readonly supersedesSession?: { readonly sessionId: string; readonly secret: string } | null;
 }
 
 export interface DeterministicLoginDeps {
@@ -132,8 +143,17 @@ export async function performDeterministicLogin(
       });
     }
 
-    const secret = generateSessionSecret();
     const now = deps.now();
+    if (input.supersedesSession) {
+      await revokeSessionWithSecret(
+        tx,
+        input.supersedesSession.sessionId,
+        input.supersedesSession.secret,
+        now,
+      );
+    }
+
+    const secret = generateSessionSecret();
     const { sessionId } = await repository.insertSession(tx, {
       userId,
       secretHash: hashSessionSecret(secret),
@@ -168,12 +188,24 @@ export interface ValidateSessionResult {
  * map every non-"valid" outcome to the same generic 401 - echoing WHICH
  * reason a session is invalid to an unauthenticated caller is an oracle.
  */
+/**
+ * `user_sessions.id` is a uuid column: handing Postgres anything else raises
+ * `invalid input syntax for type uuid`, which would turn a malformed cookie
+ * into a 500. A session ID that cannot exist simply does not exist.
+ */
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isWellFormedSessionId(sessionId: string): boolean {
+  return SESSION_ID_PATTERN.test(sessionId);
+}
+
 export async function validateSession(
   db: Queryable<Schema>,
   sessionId: string,
   providedSecret: string,
   now: Date,
 ): Promise<ValidateSessionResult> {
+  if (!isWellFormedSessionId(sessionId)) return { outcome: "not_found" };
   const session = await repository.findSessionById(db, sessionId);
   if (!session) return { outcome: "not_found" };
   if (!secretMatchesHash(providedSecret, session.secretHash)) return { outcome: "secret_mismatch" };
@@ -184,4 +216,26 @@ export async function validateSession(
 
 export async function revokeSessionById(db: Queryable<Schema>, sessionId: string, now: Date): Promise<void> {
   await repository.revokeSession(db, sessionId, now);
+}
+
+/**
+ * Revokes a session only for a caller who holds its secret - the form every
+ * browser-initiated revocation (sign-out, sign-in rotation) must use. A
+ * session ID alone is an identifier, not a credential; accepting it would let
+ * anyone who learned one sign its owner out. An already-revoked session keeps
+ * its original `revoked_at` evidence. Returns whether a live session was
+ * revoked; callers must not branch user-visible behaviour on it.
+ */
+export async function revokeSessionWithSecret(
+  db: Queryable<Schema>,
+  sessionId: string,
+  providedSecret: string,
+  now: Date,
+): Promise<boolean> {
+  if (!isWellFormedSessionId(sessionId)) return false;
+  const session = await repository.findSessionById(db, sessionId);
+  if (!session || session.revokedAt) return false;
+  if (!secretMatchesHash(providedSecret, session.secretHash)) return false;
+  await repository.revokeSession(db, sessionId, now);
+  return true;
 }

@@ -1591,3 +1591,53 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 - a decision on which task builds the student privacy-preference UI/endpoint that would call `setRankingSubjectPrivacy` for real - the data-layer primitive exists and is tested, but every subject in this task's own tests defaults to `publicOptIn: false` unless a test calls the function directly;
 - a decision on whether `best`/`latest` (as opposed to `first`) `ranking_attempt_rule` values need real multi-attempt selection logic before any attempt-policy task allows more than one non-voided attempt per (user, batch) - `listAttemptsForBatch` cannot return more than one today, so this task never actually exercised that branch;
 - a decision on which task builds real cohort grouping (dok 18 §15 "Cohort... eksplisit") - `ranking_entries.cohort` exists as a column but is always null from this task's own write path.
+
+## ADR-072 — M1 / IDN-002: production student sign-in is the WordPress one-time bridge, gated by `FEATURE_STUDENT_LOGIN` independently of the write freeze, with no app migration
+
+**Status:** Accepted for implementation (founder approval, 10 September 2026). Production activation is NOT approved: OD-02 remains `BLOCKED_EXTERNAL` until the spike in `wordpress-plugins/superlatif-app-bridge/README.md` passes.
+**Date:** 10 September 2026
+**Decided during:** M1 (production authentication). Refines ADR-006 (Provisional) and applies ADR-005.
+
+### Mechanism: one, and only one
+
+WordPress one-time bridge (ADR-006, dok 23 §5, dok 24 §3) is the sole production student sign-in for M1. No password, email OTP, magic link, or WhatsApp OTP is added: each would create a second identity silo that M2 would then have to reconcile against Sejoli purchases, and each needs a messaging provider (OD-03) or a second credential store. Students keep the account they bought with; recovery is WordPress's existing lost-password flow.
+
+Components: a minimal plugin (`wordpress-plugins/superlatif-app-bridge`, PHP, no settings screen, clients in `wp-config.php`), a protocol client in `@superlatif/integrations` (`wordpress-bridge/`), and two route handlers (`/auth/bridge/start`, `/auth/bridge/callback`) in `apps/web`. The browser carries only an opaque single-use code and the app's own state; identity comes only from the HMAC-signed server-to-server exchange response. Properties (single use via one conditional UPDATE, 120 s TTL, audience = client ID, per-client environment, state-bound login-CSRF defence, fixed redirect URIs, allowlisted return paths, hash-only code storage) are tabulated in the plugin README and pinned by cross-language vectors (`tests/vectors.json`) asserted by both the TypeScript and PHP suites.
+
+### Identity namespace: `wordpress` / WordPress `user_id` - and the Sejoli mapping stays an explicit open question
+
+The login identity is `external_identities(provider='wordpress', external_subject=<WordPress user_id>)`, named once in `@superlatif/domain/identity` (`WORDPRESS_LOGIN_PROVIDER`). The WordPress `user_id` is the one identifier the plugin can prove (it is what WordPress authenticated). The internal `users.id` stays the stable app identity (ADR-005); the WordPress ID is never used as it.
+
+It is deliberately NOT `sejoli_bridge`. Commerce resolves buyers by `findExternalIdentity('sejoli_bridge', externalUserId)`, and no repository evidence proves that value equals the WordPress `user_id`: fixtures use synthetic `wp-user-N` strings, dok 23 §4 lists `wordpress_user_id` and `sejoli_customer/member_id` separately, `contracts/openapi.yaml` allows `externalUserId: null` while `canonical-event.ts` requires a string, and no sanitized Sejoli sample exists (IDN-002's own stop condition). Reusing the commerce provider name would silently assert an unproven equivalence. The canonical M2 rule is therefore a spike output (README §3, outcomes a/b/c); M2 must not start its identity mapping until it is recorded. Email is never a merge key in any outcome.
+
+### `FEATURE_STUDENT_LOGIN`: the narrowest write carve-out, and the freeze is not weakened
+
+The existing flags could not distinguish sign-in writes from business writes - sign-in simply had no guard, because it was unreachable in production. A first bridge login must create the user and link the identity, so "session writes allowed, account creation frozen" would block every first login. The new capability flag therefore authorizes exactly the identity/session writes of a bridge sign-in (user, external identity, identity conflict, session create/revoke) and nothing else. It defaults to `false` and follows the existing capability semantics (production: explicit value decides; elsewhere: on unless `"false"`). It is independent of `PRODUCTION_WRITES_ENABLED`: `write-guard.ts` is unchanged, a test pins that sign-in enabled + writes unset still yields `writes_disabled` for exam writes, and a structural test keeps the bridge code free of exam/attempt/commerce/access imports. Sign-in is available only when the flag permits it AND the bridge configuration is complete; otherwise both routes answer 404. `deployment-config.ts` fails a hosted build when `FEATURE_STUDENT_LOGIN=true` without a complete `WP_BRIDGE_*` configuration (https, no embedded credentials, valid client ID, secret ≥ 32 characters), with value-free messages. `WP_BRIDGE_CLIENT_SECRET`'s minimum length rises from 16 to 32 (it had no consumer).
+
+### No app migration
+
+Every table the app side needs already exists (IDN-001): `users`, `external_identities` (provider is free text), `identity_conflicts`, `user_sessions`. Rate limiting reuses the `signin_client` (before the exchange) and `signin_handle` (per WordPress account, HMAC of `wordpress:<id>`) scopes. Single-use state lives where dok 23 §5 puts it - in WordPress - in the plugin's own table, which is a WordPress-side artifact created on plugin activation, not an app migration.
+
+### Session hardening shipped with this ADR
+
+- Cookie name `__Host-slf_session` whenever Secure (every Vercel deployment): browser-enforced Secure + `Path=/` + no `Domain`, so no sibling host (e.g. `akademi.superlatif.id`) can plant or overwrite it. Cleared with the full attribute set (a bare delete is ignored for `__Host-`), and the legacy unprefixed name is cleared too. Staging sessions from before this change end once.
+- Rotation: `DeterministicLoginInput.supersedesSession` revokes the browser's prior session in the same transaction that issues the new one (both bridge and dev sign-in). It can only end a session; ADR-046's "no caller-chosen session is ever honoured" is unchanged.
+- Revocation by secret: `revokeSessionWithSecret` replaces ID-only revocation on sign-out, so a forged cookie naming someone else's session ID cannot sign them out. `validateSession` treats a non-UUID ID as not found instead of letting Postgres raise (a malformed cookie was a potential 500).
+
+### Contract deviation, recorded rather than silently made
+
+`contracts/openapi.yaml` defines `POST /auth/bridge/exchange` (JSON `{code, returnPath}`) for an API client. The browser flow lands as a top-level redirect, so the web implementation is `GET /auth/bridge/callback`, with `returnPath` taken from the server-side state cookie rather than the request (the contract's `returnPath: '^/'` pattern would otherwise be the open-redirect control). Semantics are the same; no API client exists yet. Proposed contract correction when one does: add `state`, drop client-supplied `returnPath`. The contract file is not edited in this ADR.
+
+### Session TTL - reconciliation finding, NOT changed
+
+Three values disagree: `apps/web/src/lib/session.ts` hard-codes 8 h absolute and ignores `SESSION_TTL_SECONDS`; ENV_SPEC defaults `SESSION_TTL_SECONDS` to 12 h; dok 24 §4 gives provisional student idle 30 d / absolute 90 d and admin 8 h / 24 h, "final values follow risk/UX review". There is no idle expiry at all (`touchSessionLastSeen` has no caller). Recommendation for founder decision, not implemented: make `SESSION_TTL_SECONDS` the single source; students absolute 14 d + idle 3 d (throttled `last_seen_at` touch, columns already exist - no migration); admins 8 h idle / 24 h absolute plus MFA before any admin surface is activated in production. Shorter than dok 24's provisional 30/90 because bridge re-login is one tap while the WordPress session lives and shared family phones are common; long enough that an 8 h cut-off cannot land mid-tryout for a morning sign-in. Until decided, 8 h stays.
+
+### Consequences
+
+A real student can sign in to production the moment OD-02's spike passes and the founder performs the activation steps (plugin install, per-environment secret, `FEATURE_STUDENT_LOGIN=true`). Until then production renders "Masuk belum tersedia" exactly as before, and nothing about exam or business writes changes. OD-02 is not claimed closed; ADR-006 stays Provisional until the spike evidence is attached.
+
+Minimum founder confirmations:
+
+- the OD-02 spike result, including the §3 identifier outcome (a/b/c) that M2 depends on;
+- the session TTL policy above;
+- approval of each production activation step.

@@ -85,6 +85,8 @@ export async function devSignInAction(formData: FormData): Promise<void> {
       emailNormalized: null,
       phoneE164: null,
       linkReason: "deterministic_dev_signin",
+      // Same rotation rule as the production bridge (ADR-072).
+      supersedesSession: await readSessionCookie(),
     },
     { now: () => new Date(), sessionTtlSeconds: SESSION_TTL_SECONDS },
   );
@@ -112,8 +114,9 @@ export async function signOutAction(): Promise<void> {
   if (parsed) {
     // Revoke the server-side row too, not just the cookie - a cookie-only
     // sign-out would leave a still-valid session usable by anyone who had
-    // captured the credential.
-    await identity.revokeSessionById(getDb(), parsed.sessionId, new Date());
+    // captured the credential. Only with the matching secret (ADR-072): a
+    // forged cookie naming someone else's session ID must not sign them out.
+    await identity.revokeSessionWithSecret(getDb(), parsed.sessionId, parsed.secret, new Date());
   }
   await clearSessionCookie();
   redirect("/signin");

@@ -94,6 +94,8 @@ Evidence gathered from current `main` and live staging:
 
 **How does a real Superlatif student authenticate today? They cannot.** The only sign-in path is the deterministic dev seam, which refuses outright in production. There is no WordPress bridge in the codebase (`grep -rl "wp_bridge|WP_BRIDGE"` in `apps/web/src` and `packages/db/src` → nothing). This is OD-02, an open hard gate in CLAUDE.md.
 
+> **Update (M1, ADR-072).** The WordPress one-time bridge now exists: the plugin (`wordpress-plugins/superlatif-app-bridge`), the protocol client (`@superlatif/integrations`), and the `/auth/bridge/*` routes. It is gated by `FEATURE_STUDENT_LOGIN`, which defaults to `false`, so production behaviour is unchanged until activation. OD-02 stays open until the staging spike in the plugin README passes.
+
 **How does a real purchase create identity, entitlement, or program access? It does not.** The commerce domain (`packages/db/src/commerce/`) is substantial and tested — purchase lifecycle, event ingestion, outbox, SKU mapping, reconciliation — but nothing calls it, and there is no HTTP surface for a provider to reach. This is OD-01.
 
 The six grants in staging carry `source_type = "purchase"` with synthetic source ids; they were seeded directly by the fixture script, not produced by a purchase.

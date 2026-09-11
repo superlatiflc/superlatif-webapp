@@ -92,6 +92,12 @@ const FLAG_OWNERSHIP: Record<FlagName, FlagOwnership> = {
     description: "Outbound notification delivery.",
     targetRemoval: "NTF-001 passes its acceptance suite",
   },
+  FEATURE_STUDENT_LOGIN: {
+    owner: "Founder + Engineering Lead",
+    description:
+      "Production student sign-in via the WordPress one-time bridge; scoped to identity/session writes only (ADR-072).",
+    targetRemoval: "OD-02 closes and production sign-in has run through one full launch cycle without rollback",
+  },
   SKD_PRODUCTION_ACTIVATION: {
     owner: "Academic Owner + Product Owner",
     description: "Ranked SKD production activation.",
@@ -99,7 +105,8 @@ const FLAG_OWNERSHIP: Record<FlagName, FlagOwnership> = {
   },
   PRODUCTION_WRITES_ENABLED: {
     owner: "Founder + Engineering Lead",
-    description: "Master switch for any production-effect write.",
+    description:
+      "Master switch for production-effect exam and business writes; student sign-in is governed by FEATURE_STUDENT_LOGIN (ADR-072).",
     targetRemoval: "Explicit signed go/no-go per 30_LAUNCH_AND_OPERATIONS_RUNBOOK.md §13",
   },
 };
