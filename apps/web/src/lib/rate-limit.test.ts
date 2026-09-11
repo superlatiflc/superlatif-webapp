@@ -7,13 +7,22 @@
 // to reintroduce: they assert the flag is actually consumed, and that the
 // unsafe combinations refuse to start rather than serving unprotected.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/headers", () => ({
   headers: async () => new Map<string, string>() as unknown as Headers,
 }));
 
 const ORIGINAL = { ...process.env };
+
+// Every test re-imports the module after vi.resetModules(), and the FIRST
+// import also pays the one-time transform of its whole graph (@superlatif/db,
+// contracts, integrations). Under a fully parallel `verify` that cold import
+// alone exceeded the 5 s per-test timeout. Warming it once here, with its own
+// generous hook timeout, keeps each test measuring only its own behaviour.
+beforeAll(async () => {
+  await import("./rate-limit.ts");
+}, 60_000);
 
 beforeEach(() => {
   vi.resetModules();

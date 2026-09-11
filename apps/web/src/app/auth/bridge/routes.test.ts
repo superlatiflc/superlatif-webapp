@@ -124,6 +124,17 @@ describe("structural isolation", () => {
     },
   );
 
+  // Regression: the shared observability package reads a contracts JSON file
+  // from disk at module load, which does not exist inside a Vercel function, so
+  // importing it made /auth/bridge/callback answer 500 in production even
+  // with sign-in disabled. The bridge path logs through ./lib/bridge/log.ts.
+  it.each(files.map((file) => [path.relative(webSrc, file), file]))(
+    "%s does not import the shared observability package",
+    (_label, file) => {
+      expect(stripComments(readFileSync(file, "utf8"))).not.toMatch(/["']@superlatif\/observability["']/);
+    },
+  );
+
   it("the callback reads no identity from its URL", () => {
     const source = stripComments(
       readFileSync(path.join(webSrc, "app/auth/bridge/callback/route.ts"), "utf8"),
