@@ -17,6 +17,7 @@
     "@superlatif/observability": "workspace:*",
     "@superlatif/domain": "workspace:*",
     "@superlatif/db": "workspace:*",
+    "@superlatif/integrations": "workspace:*",
     "@superlatif/ui": "workspace:*"
   },
   "devDependencies": {

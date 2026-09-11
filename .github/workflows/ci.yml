@@ -107,6 +107,12 @@ jobs:
       - name: Contract tests
         run: pnpm run test:contract
 
+      # ADR-072. ubuntu-latest ships PHP; the plugin is linted and its own
+      # tests run here because `verify` must stay runnable on machines
+      # without PHP (locally: `npx @php-wasm/cli tests/run.php`).
+      - name: WordPress bridge plugin (PHP lint + tests)
+        run: pnpm run test:wp-bridge
+
       - name: Contract artifact validation
         run: pnpm run contracts:validate
 

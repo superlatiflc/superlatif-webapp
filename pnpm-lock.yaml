@@ -56,6 +56,9 @@ importers:
       '@superlatif/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@superlatif/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@superlatif/observability':
         specifier: workspace:*
         version: link:../../packages/observability

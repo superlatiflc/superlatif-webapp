@@ -1,0 +1,21 @@
+{
+  "description": "Cross-language HMAC vectors for the superlatif-app-bridge protocol (ADR-072). Asserted by packages/integrations (TypeScript) AND tests/run.php (PHP). Synthetic key; not a credential.",
+  "hmacKey": "vector-key-for-protocol-tests-only-0000000",
+  "code": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+  "state": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+  "request": {
+    "timestamp": "1767225600",
+    "body": "{\"code\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\",\"state\":\"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI\",\"environment\":\"staging\"}",
+    "signature": "662d12e347fe594fd509fe13e1f7db5b40835cdbfc7f4ef098e8cfaae557315c"
+  },
+  "response": {
+    "timestamp": "1767225600",
+    "claims": {
+      "version": 1,
+      "subject": "4821",
+      "audience": "superlatif-web-staging",
+      "environment": "staging"
+    },
+    "signature": "75e494e0a9006c65654d3133bfe0982e3c525aa235e6d9c1310d7da724ddb4d0"
+  }
+}

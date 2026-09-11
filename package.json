@@ -18,6 +18,7 @@
     "test:unit": "vitest run --project unit",
     "test:contract": "vitest run --project contract",
     "test:integration": "vitest run --project integration",
+    "test:wp-bridge": "node scripts/test-wp-bridge.mjs",
     "test:e2e": "node scripts/not-configured.mjs test:e2e \"P2 (first real UI surface)\"",
     "test:a11y": "node scripts/not-configured.mjs test:a11y \"P2 (first real UI surface)\"",
     "contracts:validate": "node scripts/validate-contracts.mjs",

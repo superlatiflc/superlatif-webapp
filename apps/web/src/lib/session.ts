@@ -32,34 +32,77 @@ import { redirect } from "next/navigation";
 import { identity } from "@superlatif/db";
 import { getDb } from "./db.ts";
 
-const SESSION_COOKIE = "slf_session";
-/** Matches IDN-001's own session TTL expectation; the authoritative expiry is the `expiresAt` column, this only bounds the cookie itself. */
+const LEGACY_SESSION_COOKIE = "slf_session";
+/**
+ * Matches IDN-001's own session TTL expectation; the authoritative expiry is the `expiresAt` column, this only bounds the cookie itself.
+ * NOT yet reconciled with ENV_SPEC's SESSION_TTL_SECONDS default or dok 24 §4's idle/absolute model - see ADR-072 "Session TTL".
+ */
 export const SESSION_TTL_SECONDS = 60 * 60 * 8;
+
+/** Mirrors IDN-001's generated secret (base64url); anything else cannot be a session we issued. */
+const SECRET_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+
+function isSecureContext(): boolean {
+  return process.env["NODE_ENV"] === "production";
+}
+
+/**
+ * `__Host-` whenever the cookie is Secure (every Vercel deployment, ADR-072).
+ * The prefix is enforced by the BROWSER, not by us: it refuses a `__Host-`
+ * cookie unless it is Secure, has Path=/, and carries no Domain attribute.
+ * So no other host - a sibling subdomain such as akademi.superlatif.id
+ * included - can ever plant or overwrite the session cookie, which is what
+ * keeps the fixation defence intact against cookie tossing. Plain-http local
+ * development cannot satisfy Secure in every browser, so it keeps the
+ * unprefixed name.
+ */
+export function sessionCookieName(): string {
+  return isSecureContext() ? "__Host-slf_session" : LEGACY_SESSION_COOKIE;
+}
+
+/** Exported for the cookie-attribute tests. No `domain` - that absence is the point (host-only cookie). */
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: isSecureContext(),
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS,
+  };
+}
 
 function encode(sessionId: string, secret: string): string {
   return `${sessionId}.${secret}`;
 }
 
-function decode(raw: string): { readonly sessionId: string; readonly secret: string } | null {
+/** Exported for tests. A malformed value is "no session" - never an exception, never a database query. */
+export function decodeSessionCookie(
+  raw: string,
+): { readonly sessionId: string; readonly secret: string } | null {
   const separator = raw.indexOf(".");
   if (separator <= 0 || separator === raw.length - 1) return null;
-  return { sessionId: raw.slice(0, separator), secret: raw.slice(separator + 1) };
+  const sessionId = raw.slice(0, separator);
+  const secret = raw.slice(separator + 1);
+  if (!identity.isWellFormedSessionId(sessionId) || !SECRET_PATTERN.test(secret)) return null;
+  return { sessionId, secret };
 }
 
 export async function setSessionCookie(sessionId: string, secret: string): Promise<void> {
   const store = await cookies();
-  store.set(SESSION_COOKIE, encode(sessionId, secret), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env["NODE_ENV"] === "production",
-    path: "/",
-    maxAge: SESSION_TTL_SECONDS,
-  });
+  store.set(sessionCookieName(), encode(sessionId, secret), sessionCookieOptions());
 }
 
+/**
+ * Expires the cookie with the SAME attributes it was set with: a browser
+ * ignores a `__Host-` Set-Cookie that lacks Secure/Path=/, so a bare delete
+ * could silently fail to clear it. The pre-hardening unprefixed name is
+ * cleared too, so no stale credential lingers after sign-out.
+ */
 export async function clearSessionCookie(): Promise<void> {
   const store = await cookies();
-  store.delete(SESSION_COOKIE);
+  const expired = { ...sessionCookieOptions(), maxAge: 0 };
+  store.set(sessionCookieName(), "", expired);
+  if (sessionCookieName() !== LEGACY_SESSION_COOKIE) store.set(LEGACY_SESSION_COOKIE, "", expired);
 }
 
 /** The raw (sessionId, secret) pair, for a sign-out that needs to revoke the server-side row too. */
@@ -68,8 +111,8 @@ export async function readSessionCookie(): Promise<{
   readonly secret: string;
 } | null> {
   const store = await cookies();
-  const raw = store.get(SESSION_COOKIE)?.value;
-  return raw ? decode(raw) : null;
+  const raw = store.get(sessionCookieName())?.value;
+  return raw ? decodeSessionCookie(raw) : null;
 }
 
 /** null for anonymous, an expired session, a revoked session, or a tampered secret - indistinguishable by design (see module doc). */

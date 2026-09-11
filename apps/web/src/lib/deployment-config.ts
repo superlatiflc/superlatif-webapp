@@ -25,6 +25,7 @@
 // build logs. Every violation leaving this module is sanitized first.
 
 import { EnvValidationError, SECRET_ENV_NAMES, loadCoreEnv } from "@superlatif/contracts";
+import { BRIDGE_CLIENT_ID_PATTERN } from "@superlatif/integrations";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -118,7 +119,67 @@ export function deploymentConfigViolations(env: Env): string[] {
     violations.push("DATABASE_URL is required for a staging or production web deployment");
   }
 
+  violations.push(...studentLoginConfigViolations(env));
+
   return sanitizeEnvViolations(violations, env);
+}
+
+/**
+ * Value-free problems with the WordPress bridge client configuration; empty
+ * when complete. Shared with the request path (lib/bridge/config.ts), so the
+ * build gate and the runtime availability check cannot disagree about what a
+ * usable configuration is.
+ */
+export function bridgeClientConfigProblems(env: Env): string[] {
+  const problems: string[] = [];
+  const hosted = HOSTED_APP_ENVS.has(env["APP_ENV"] ?? "");
+
+  const baseUrl = env["WP_BRIDGE_BASE_URL"]?.trim();
+  if (!baseUrl) {
+    problems.push("WP_BRIDGE_BASE_URL is missing");
+  } else {
+    let url: URL | null = null;
+    try {
+      url = new URL(baseUrl);
+    } catch {
+      problems.push("WP_BRIDGE_BASE_URL is not a valid URL");
+    }
+    if (url) {
+      // The exchange carries a signed identity assertion; on a hosted
+      // deployment it must never cross the network in clear text.
+      const allowed = hosted ? ["https:"] : ["https:", "http:"];
+      if (!allowed.includes(url.protocol)) {
+        problems.push(
+          hosted ? "WP_BRIDGE_BASE_URL must use https" : "WP_BRIDGE_BASE_URL must use http or https",
+        );
+      }
+      if (url.username || url.password) problems.push("WP_BRIDGE_BASE_URL must not embed credentials");
+    }
+  }
+
+  const clientId = env["WP_BRIDGE_CLIENT_ID"]?.trim();
+  if (!clientId || !BRIDGE_CLIENT_ID_PATTERN.test(clientId)) {
+    problems.push("WP_BRIDGE_CLIENT_ID is missing or not a valid client ID");
+  }
+
+  const secret = env["WP_BRIDGE_CLIENT_SECRET"];
+  if (!secret || secret.length < 32) {
+    problems.push("WP_BRIDGE_CLIENT_SECRET is missing or shorter than 32 characters");
+  }
+  return problems;
+}
+
+/**
+ * ADR-072: turning production sign-in on without a complete bridge
+ * configuration would publish a sign-in button that can only fail. Refuse
+ * the build instead. Keyed on the EXPLICIT value "true": in production the
+ * flag defaults off, so the only way to reach this is an operator setting it.
+ */
+export function studentLoginConfigViolations(env: Env): string[] {
+  if (env["FEATURE_STUDENT_LOGIN"] !== "true") return [];
+  return bridgeClientConfigProblems(env).map(
+    (problem) => `FEATURE_STUDENT_LOGIN=true requires a complete WordPress bridge configuration: ${problem}`,
+  );
 }
 
 /** Throws when this environment must not become a hosted deployment. Called from next.config.ts. */

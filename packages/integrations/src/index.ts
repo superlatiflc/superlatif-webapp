@@ -1,10 +1,40 @@
 // @superlatif/integrations
 //
-// Vendor adapters at the boundary: wordpress-sejoli, object-storage, messaging. Empty until OD-01/OD-02/OD-03 evidence exists.
+// Vendor adapters at the boundary: wordpress-sejoli, object-storage, messaging.
 //
 // Owning backlog task: P1/P3.
 // GOV-001 only establishes the package boundary; behaviour is added by the
 // owning task. Do not add domain semantics, provider behaviour, or schema here
 // without the backlog entry that owns it.
+//
+// IDN-002 / M1 (ADR-072): the WordPress one-time bridge client. Code for the
+// commerce (Sejoli) adapters still waits on OD-01 evidence.
 
-export {};
+export {
+  BRIDGE_AUTHORIZE_ACTION,
+  BRIDGE_CLIENT_ID_PATTERN,
+  BRIDGE_ENVIRONMENT_PATTERN,
+  BRIDGE_HEADERS,
+  BRIDGE_MAX_CLOCK_SKEW_SECONDS,
+  BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_REST_ROUTE,
+  BRIDGE_SUBJECT_PATTERN,
+  bridgeSignatureMatches,
+  generateBridgeState,
+  isBridgeTimestampFresh,
+  isWellFormedBridgeToken,
+  parseIdentityClaims,
+  requestSigningInput,
+  responseSigningInput,
+  signBridgeMessage,
+  type BridgeIdentityClaims,
+} from "./wordpress-bridge/protocol.ts";
+
+export {
+  bridgeAuthorizeUrl,
+  bridgeExchangeUrl,
+  exchangeBridgeCode,
+  type BridgeClientConfig,
+  type BridgeExchangeDeps,
+  type BridgeExchangeResult,
+} from "./wordpress-bridge/client.ts";
