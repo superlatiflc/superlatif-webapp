@@ -33,7 +33,18 @@ export const BRIDGE_HEADERS = {
 /** REST route, addressed via `?rest_route=` so it works with or without pretty permalinks. */
 export const BRIDGE_REST_ROUTE = "/superlatif-bridge/v1/exchange";
 
-/** `admin-post.php` action that issues a code for the logged-in WordPress user. */
+/**
+ * Front-end authorize entry point (ADR-073): `/?superlatif_bridge=authorize`.
+ *
+ * Deliberately not under `/wp-admin/`: membership plugins guard every
+ * `/wp-admin/*` request on `admin_init`, which `admin-post.php` fires before
+ * any `admin_post_*` handler, so the old entry point was redirected away
+ * before the bridge plugin ran at all.
+ */
+export const BRIDGE_AUTHORIZE_QUERY_VAR = "superlatif_bridge";
+export const BRIDGE_AUTHORIZE_QUERY_VALUE = "authorize";
+
+/** Legacy `admin-post.php` action. The plugin still accepts it, for rollback only. */
 export const BRIDGE_AUTHORIZE_ACTION = "superlatif_bridge_authorize";
 
 /** 32 random bytes, base64url without padding - codes and state values alike. */

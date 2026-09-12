@@ -244,6 +244,18 @@ function update_option( string $name, $value, bool $autoload ): bool {
 function register_rest_route( string $namespace, string $route, array $args ): void {
 	$GLOBALS['sab_routes'][ $namespace . $route ] = $args;
 }
+function home_url( string $path = '' ): string {
+	return 'https://wp.test' . ( '' === $path ? '' : $path );
+}
+function do_action( string $hook, ...$args ): void {
+	$GLOBALS['sab_actions'][] = $hook;
+}
+function is_ssl(): bool {
+	return true;
+}
+function wp_doing_ajax(): bool {
+	return false;
+}
 
 require_once __DIR__ . '/../includes/protocol.php';
 require_once __DIR__ . '/../includes/config.php';
@@ -364,7 +376,7 @@ $_GET = array(
 	'state'     => new_state(),
 );
 superlatif_bridge_handle_authorize();
-check( 'logged out: sent to the WordPress login page, returning to authorize', 0 === strpos( (string) $GLOBALS['sab_redirect'], 'https://wp.test/wp-login.php?redirect_to=' ) && false !== strpos( (string) $GLOBALS['sab_redirect'], rawurlencode( 'action=superlatif_bridge_authorize' ) ) );
+check( 'logged out: sent to the WordPress login page, returning to authorize', 0 === strpos( (string) $GLOBALS['sab_redirect'], 'https://wp.test/wp-login.php?redirect_to=' ) && false !== strpos( rawurldecode( (string) $GLOBALS['sab_redirect'] ), 'superlatif_bridge=authorize' ) );
 check( 'logged out: no code issued', array() === $GLOBALS['wpdb']->rows );
 
 reset_state();
@@ -579,6 +591,127 @@ $result = exchange(
 );
 $GLOBALS['sab_users'][4821] = true;
 check( 'account deleted between issue and exchange: invalid_grant', 'invalid_grant' === error_code( $result ) );
+
+// ------------------------------------------- front-end authorize (ADR-073)
+
+/** Reset yang juga mengosongkan header/cookie hasil seam pengujian. */
+function reset_front_end(): void {
+	reset_state();
+	$GLOBALS['superlatif_bridge_test_headers'] = array();
+	$GLOBALS['superlatif_bridge_test_cookies'] = array();
+	$GLOBALS['sab_actions']                    = array();
+	$_COOKIE                                   = array();
+}
+
+function emitted_headers(): string {
+	return implode( "\n", $GLOBALS['superlatif_bridge_test_headers'] ?? array() );
+}
+
+function front_end_request( string $client_id, string $state ): void {
+	$_GET = array(
+		SUPERLATIF_BRIDGE_QUERY_VAR => SUPERLATIF_BRIDGE_AUTHORIZE_REQUEST,
+		'client_id'                 => $client_id,
+		'state'                     => $state,
+	);
+	superlatif_bridge_maybe_handle_authorize_request();
+}
+
+reset_front_end();
+$state = new_state();
+front_end_request( 'superlatif-web-production', $state );
+$redirect = (string) $GLOBALS['sab_redirect'];
+check( 'front-end + logout: diarahkan ke halaman login WordPress', 0 === strpos( $redirect, 'https://wp.test/wp-login.php?redirect_to=' ) );
+check(
+	'front-end + logout: return URL menunjuk entry point FRONT-END, bukan admin-post',
+	false !== strpos( rawurldecode( $redirect ), 'superlatif_bridge=authorize' )
+		&& false === strpos( rawurldecode( $redirect ), 'admin-post.php' )
+);
+check( 'front-end + logout: belum ada kode diterbitkan', array() === $GLOBALS['wpdb']->rows );
+
+$pending_cookie = $GLOBALS['superlatif_bridge_test_cookies'][0]['value'] ?? '';
+$pending_expiry = $GLOBALS['superlatif_bridge_test_cookies'][0]['expires'] ?? 0;
+check( 'pending cookie dipasang dengan 4 bagian', 4 === count( explode( '.', $pending_cookie ) ) );
+check( 'pending cookie TTL maksimal 10 menit', $pending_expiry - time() <= SUPERLATIF_BRIDGE_PENDING_TTL && $pending_expiry > time() );
+check( 'pending cookie TIDAK memuat URL', false === strpos( $pending_cookie, 'http' ) && false === strpos( $pending_cookie, '/' ) );
+$parsed = superlatif_bridge_parse_pending(
+	$pending_cookie,
+	static function ( string $id ): ?string {
+		$c = superlatif_bridge_client( $id );
+		return null === $c ? null : $c['secret'];
+	},
+	time()
+);
+check( 'pending cookie terverifikasi dan memuat client_id + state saja', is_array( $parsed ) && 'superlatif-web-production' === $parsed['client_id'] && $state === $parsed['state'] );
+
+// --- HARD GATE: respons authorize tidak boleh cacheable
+$headers = emitted_headers();
+check( 'anti-cache: Cache-Control no-store', false !== stripos( $headers, 'Cache-Control: no-store' ) );
+check( 'anti-cache: header khusus LiteSpeed', false !== stripos( $headers, 'X-LiteSpeed-Cache-Control: no-cache, no-store' ) );
+check( 'anti-cache: proxy/CDN (X-Accel-Expires + CDN-Cache-Control)', false !== stripos( $headers, 'X-Accel-Expires: 0' ) && false !== stripos( $headers, 'CDN-Cache-Control: no-store' ) );
+check( 'anti-cache: Pragma + Expires + Vary: Cookie', false !== stripos( $headers, 'Pragma: no-cache' ) && false !== stripos( $headers, 'Expires: 0' ) && false !== stripos( $headers, 'Vary: Cookie' ) );
+check( 'anti-cache: Referrer-Policy no-referrer', false !== stripos( $headers, 'Referrer-Policy: no-referrer' ) );
+check( 'anti-cache: konstanta DONOTCACHEPAGE didefinisikan', defined( 'DONOTCACHEPAGE' ) && DONOTCACHEPAGE );
+check( 'anti-cache: action litespeed_control_set_nocache dipicu', in_array( 'litespeed_control_set_nocache', $GLOBALS['sab_actions'] ?? array(), true ) );
+
+reset_front_end();
+$GLOBALS['sab_user_id'] = 4821;
+$state                  = new_state();
+front_end_request( 'superlatif-web-production', $state );
+parse_str( (string) parse_url( (string) $GLOBALS['sab_redirect'], PHP_URL_QUERY ), $q );
+check( 'front-end + login: diarahkan ke redirect_uri terkonfigurasi', 0 === strpos( (string) $GLOBALS['sab_redirect'], 'https://app.test/auth/bridge/callback?code=' ) );
+check( 'front-end + login: kode sah diterbitkan', superlatif_bridge_is_token( $q['code'] ?? '' ) );
+check( 'front-end + login: respons tetap tidak cacheable', false !== stripos( emitted_headers(), 'Cache-Control: no-store' ) );
+
+reset_front_end();
+$_GET = array( SUPERLATIF_BRIDGE_QUERY_VAR => 'sesuatu-yang-lain' );
+superlatif_bridge_maybe_handle_authorize_request();
+check( 'query var dengan nilai lain: handler tidak dijalankan', null === $GLOBALS['sab_redirect'] && array() === $GLOBALS['wpdb']->rows );
+
+// --- pending cookie: penolakan
+reset_front_end();
+$now   = time();
+$valid = superlatif_bridge_pending_value( STAGING_KEY, 'superlatif-web-staging', new_state(), $now );
+$lookup = static function ( string $id ): ?string {
+	$c = superlatif_bridge_client( $id );
+	return null === $c ? null : $c['secret'];
+};
+check( 'pending: nilai sah diterima', null !== superlatif_bridge_parse_pending( $valid, $lookup, $now ) );
+check( 'pending: HMAC diubah ditolak', null === superlatif_bridge_parse_pending( substr( $valid, 0, -1 ) . '0', $lookup, $now ) );
+check( 'pending: client tidak dikenal ditolak', null === superlatif_bridge_parse_pending( str_replace( 'superlatif-web-staging', 'client-lain-lain', $valid ), $lookup, $now ) );
+check( 'pending: kedaluwarsa (>10 menit) ditolak', null === superlatif_bridge_parse_pending( $valid, $lookup, $now + SUPERLATIF_BRIDGE_PENDING_TTL + 1 ) );
+check( 'pending: ditandatangani kunci client LAIN ditolak', null === superlatif_bridge_parse_pending( superlatif_bridge_pending_value( PRODUCTION_KEY, 'superlatif-web-staging', new_state(), $now ), $lookup, $now ) );
+check( 'pending: bentuk rusak ditolak', null === superlatif_bridge_parse_pending( 'a.b.c', $lookup, $now ) && null === superlatif_bridge_parse_pending( '', $lookup, $now ) );
+
+// --- resume setelah login
+reset_front_end();
+$state                                              = new_state();
+$_COOKIE[ SUPERLATIF_BRIDGE_PENDING_COOKIE ]        = superlatif_bridge_pending_value( PRODUCTION_KEY, 'superlatif-web-production', $state, time() );
+$GLOBALS['sab_user_id']                             = 4821;
+superlatif_bridge_resume_after_login();
+$resume = (string) $GLOBALS['sab_redirect'];
+check( 'resume: kembali ke authorize front-end yang dibangun ulang server-side', false !== strpos( $resume, 'superlatif_bridge=authorize' ) && 0 === strpos( $resume, 'https://wp.test/' ) );
+check( 'resume: state yang sama dibawa kembali', false !== strpos( rawurldecode( $resume ), $state ) );
+check( 'resume: cookie dihapus (sekali pakai)', ! isset( $_COOKIE[ SUPERLATIF_BRIDGE_PENDING_COOKIE ] ) );
+
+$GLOBALS['sab_redirect'] = null;
+superlatif_bridge_resume_after_login();
+check( 'resume kedua tanpa cookie: tidak ada redirect (tidak bisa diulang)', null === $GLOBALS['sab_redirect'] );
+
+reset_front_end();
+$GLOBALS['sab_user_id'] = 4821;
+superlatif_bridge_resume_after_login();
+check( 'LOGIN NORMAL (tanpa cookie bridge): tidak diarahkan ke mana pun', null === $GLOBALS['sab_redirect'] );
+
+reset_front_end();
+$GLOBALS['sab_user_id']                      = 4821;
+$_COOKIE[ SUPERLATIF_BRIDGE_PENDING_COOKIE ] = 'jelas-tidak-sah';
+superlatif_bridge_resume_after_login();
+check( 'resume dengan cookie tidak sah: tidak ada redirect, cookie tetap dibuang', null === $GLOBALS['sab_redirect'] && ! isset( $_COOKIE[ SUPERLATIF_BRIDGE_PENDING_COOKIE ] ) );
+
+// --- entry point lama tetap dilayani (backward compatibility / rollback)
+reset_front_end();
+list( $legacy_code, $legacy_state ) = authorize_as( 4821, 'superlatif-web-production' );
+check( 'legacy admin-post masih menerbitkan kode', superlatif_bridge_is_token( $legacy_code ) );
 
 // ---------------------------------------------------------------- housekeeping
 
