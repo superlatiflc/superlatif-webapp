@@ -1695,3 +1695,52 @@ Minimum founder confirmations:
 - the LiteSpeed exclusion is configured on staging, and later on production, before student traffic;
 - the two staging mu-plugins are deleted after this version is installed;
 - a re-run of T1-T3, T9, and the new cache test on staging.
+
+## ADR-074 — M2: Sejoli purchases reach the app as signed webhook events from the bridge plugin, buyers resolve to the WordPress sign-in identity, and a purchase made before the first sign-in is claimed automatically
+
+**Status:** Implemented on `feat/m2-purchase-entitlement`. Staging end-to-end pending; OD-01 stays open until the staging capture confirms the Sejoli hooks and statuses below. Not active in production: `FEATURE_COMMERCE_SYNC` defaults off there and `PRODUCTION_WRITES_ENABLED=false` still freezes commerce writes.
+**Date:** 25 September 2026
+**Builds on:** COM-001…COM-006 (catalogue, ingestion, purchase lifecycle, reconciliation - reused unchanged), ADR-072/073 (sign-in bridge), OD-02 outcome (a).
+
+### Decision 1: delivery is push, from the existing bridge plugin
+
+The plugin (1.2.0) listens to `sejoli/order/set-status/{status}`. That hook fires on order creation and after every status change (every Sejoli path goes through `update_status`), and it is where Sejoli's own access logic hangs: license and user group are granted on `completed` and withdrawn on `refunded`/`cancelled` (Sejoli 1.14.2 source). Events are written to an outbox table with a fixed event ID, attempted at the end of the request, and retried by WP-Cron every 5 minutes with backoff for about 22 hours - always with the same event ID and the same body bytes. 400/413/415/422 are dead immediately (kept for a human); everything else retries.
+
+Status map v1 (plugin side), from Sejoli's own entitlement semantics - not invented:
+
+| Sejoli | Wire `eventType` | Purchase state |
+| --- | --- | --- |
+| `completed` | `payment_settled` | `paid` |
+| `on-hold`, `payment-confirm`, `in-progress`, `shipping` | `order_pending` | `pending` |
+| `refunded` | `refund_full` | `refunded_full` |
+| `cancelled` | `order_cancelled` | `cancelled` |
+
+`payment-confirm` is the buyer's unverified "I transferred" claim, so it grants nothing. Sejoli core has no partial refund, expiry, or chargeback; those wire types are never produced. `chargeback_resolved` has no canonical state and is quarantined by the app (`WIRE_EVENT_TYPE_STATUS_MAP_V1`).
+
+### Decision 2: the wire contract is `contracts/openapi.yaml`, unchanged
+
+Body = `CanonicalCommerceEvent` (strict, `additionalProperties: false`, validated both ways by `test/contract/commerce-webhook.contract.test.ts`). Headers = `X-Provider-Event-ID`, `X-Superlatif-Timestamp`, `X-Superlatif-Key-ID`, `X-Superlatif-Signature`. Signature = HMAC-SHA256 hex over `commerce.v1\n{keyId}\n{timestamp}\n{eventId}\n{raw body}` with `SEJOLI_WEBHOOK_SIGNING_SECRET` (dedicated, ≥ 32 characters, must differ from the sign-in secret; both sides refuse otherwise). ±300 s window. Key ID = the bridge client ID; `site` = the host of `WP_BRIDGE_BASE_URL`, never taken from the body. The plugin sends no email, name, phone, coupon, or affiliate data; `customer.*Hash` is always null.
+
+Responses: 404 when disabled/unconfigured; 503 + `Retry-After` during a production write freeze or if processing fails after receipt (the plugin keeps the event and retries); 400 malformed; 401 bad signature or stale timestamp; 403 unknown key; 202 `{accepted, duplicate, eventReceiptId}`.
+
+### Decision 3: buyer identity = the WordPress sign-in identity
+
+OD-02 outcome (a) proved Sejoli `orders.user_id` = WordPress `users.ID`. Commerce provider `sejoli_bridge` therefore resolves buyers under identity provider `wordpress` (`COMMERCE_BUYER_IDENTITY_PROVIDERS`), the namespace the sign-in bridge links. Never by email. A provider without such evidence keeps its own namespace.
+
+### Decision 4: processing runs right after the durable receipt, with retry as the re-drive
+
+No worker runs jobs yet, so `receiveCommerceEvent` commits the raw receipt, then processes it in its own transaction. A crash in between leaves a normalized-but-unprocessed event; the plugin's retry (same event ID) lands on the duplicate path, which re-drives processing. `processPurchaseLifecycleEvent` stays idempotent per normalized event. Unverified deliveries are stored (fixture COM-SYN-005) under a payload-checksum key, never under the event ID they claim, so a forger cannot squat a genuine event ID; they are rate limited per network source (30 per 10 minutes).
+
+### Decision 5: a purchase before the first sign-in is claimed on `/home`
+
+Such a purchase is recorded with no user and an `unresolved_identity` case (unchanged COM-003 behaviour). When the buyer signs in, `/home` calls `claimPurchasesForUser` with the session user: every unbound purchase whose events all name a WordPress subject that user owns is bound (row-locked, once), paid ones get their grants through the same `applyPurchaseStatusEffects`, and the case is resolved by the system (`resolvedByUserId = null`). The claim is not in the sign-in callback, so ADR-072's isolation of sign-in from commerce stays intact, and it obeys the same two switches as the webhook.
+
+### Decision 6: an order never moves to another user
+
+A later event for an order that names a different buyer (or an unbound order whose events name two buyers) is recorded as `ignored_identity_mismatch` and opens an `identity_mismatch` case; it never binds, revokes, or regrants. Two additive vocabulary items, both internal audit labels, not canonical purchase/grant states.
+
+### Consequences
+
+No migration, no new table in the app, no OpenAPI change. `SEJOLI_WEBHOOK_SIGNING_SECRET` minimum length raised 16 → 32. New rate-limit scope `commerce_webhook_unverified`. Build gate: an explicit `FEATURE_COMMERCE_SYNC=true` without a complete webhook configuration refuses the deployment. Existing commerce tests now link buyers under `wordpress`, matching Decision 3.
+
+Assumptions the staging capture must confirm (OD-01): the installed Sejoli version fires the same hooks with `ID`, `product_id`, `user_id`, `grand_total`, `status`; `grand_total` is IDR; digital products go straight to `completed`; a refund in the admin sets `refunded`.

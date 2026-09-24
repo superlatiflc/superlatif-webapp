@@ -15,7 +15,13 @@
 import { createHmac } from "node:crypto";
 
 export type RateLimitScope =
-  "signin_client" | "signin_handle" | "attempt_start" | "lease_takeover" | "attempt_submit" | "answer_save";
+  | "signin_client"
+  | "signin_handle"
+  | "attempt_start"
+  | "lease_takeover"
+  | "attempt_submit"
+  | "answer_save"
+  | "commerce_webhook_unverified";
 
 export interface RateLimitRule {
   readonly scope: RateLimitScope;
@@ -63,6 +69,16 @@ export const RATE_LIMIT_RULES: Readonly<Record<RateLimitScope, RateLimitRule>> =
   // loop still trips the shared counter within 25 requests. The cost of the
   // optimisation is bounded over-admission - see `docs` in service.ts.
   answer_save: { scope: "answer_save", limit: 600, windowSeconds: MINUTE, batchSize: 25 },
+  // Commerce webhook deliveries that FAIL verification (M2, ADR-074). They are
+  // recorded for diagnosis (fixture COM-SYN-005), so an unauthenticated
+  // caller could otherwise fill the raw-event table. Consumed only on a
+  // failed signature: correctly signed bridge traffic never touches it.
+  commerce_webhook_unverified: {
+    scope: "commerce_webhook_unverified",
+    limit: 30,
+    windowSeconds: 10 * MINUTE,
+    batchSize: 1,
+  },
 };
 
 /**

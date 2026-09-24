@@ -249,7 +249,7 @@ describe("required test: repair idempotent, audit trail, repair grant/access inv
     const studentId = await makeStudent("wp-user-1@example.test");
     await linkExternalIdentity(handle.db, {
       userId: studentId,
-      provider: "sejoli_bridge",
+      provider: "wordpress",
       externalSubject: "wp-user-1",
       linkReason: "test fixture",
     });
@@ -479,7 +479,7 @@ describe("required support: unresolved identity", () => {
     const studentId = await makeStudent("wp-user-unlinked-1@example.test");
     await linkExternalIdentity(handle.db, {
       userId: studentId,
-      provider: "sejoli_bridge",
+      provider: "wordpress",
       externalSubject: "wp-user-unlinked-1",
       linkReason: "identity resolved via support",
     });
@@ -512,7 +512,7 @@ describe("required support: ambiguous transition (refund mismatch repair)", () =
     const studentId = await makeStudent("wp-user-ambiguous-1@example.test");
     await linkExternalIdentity(handle.db, {
       userId: studentId,
-      provider: "sejoli_bridge",
+      provider: "wordpress",
       externalSubject: "wp-user-ambiguous-1",
       linkReason: "test fixture",
     });
@@ -654,7 +654,7 @@ describe("required support: chargeback review", () => {
     const studentId = await makeStudent("wp-user-chargeback-1@example.test");
     await linkExternalIdentity(handle.db, {
       userId: studentId,
-      provider: "sejoli_bridge",
+      provider: "wordpress",
       externalSubject: "wp-user-chargeback-1",
       linkReason: "test fixture",
     });
@@ -717,7 +717,7 @@ describe("required support: chargeback review", () => {
     const studentId = await makeStudent("wp-user-chargeback-2@example.test");
     await linkExternalIdentity(handle.db, {
       userId: studentId,
-      provider: "sejoli_bridge",
+      provider: "wordpress",
       externalSubject: "wp-user-chargeback-2",
       linkReason: "test fixture",
     });

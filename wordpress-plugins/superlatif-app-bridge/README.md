@@ -1,6 +1,6 @@
 # Superlatif App Bridge (WordPress plugin)
 
-One-time sign-in bridge from the Superlatif WordPress site to the Superlatif Web App. It covers M1 and is recorded as ADR-072 in `docs/gates/26_ADRS.md`.
+One-time sign-in bridge from the Superlatif WordPress site to the Superlatif Web App (M1, ADR-072/073), and since 1.2.0 the signed delivery of Sejoli order status events to the app (M2, ADR-074). Both are recorded in `docs/gates/26_ADRS.md`.
 
 > **Status: installed on the WordPress STAGING copy only** (version 1.1.0; OD-02 staging acceptance PASS on 24 September 2026 — `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). It is **not** installed on the live `superlatif.id`. Do not install it there until the founder approves production activation, and configure the LiteSpeed exclusion below first.
 
@@ -96,6 +96,34 @@ Rules the plugin enforces (an invalid entry is ignored and logged by client ID o
 - Production and staging are **separate clients with separate secrets**.
 
 ---
+
+## Commerce events (1.2.0, M2, ADR-074)
+
+Off unless a client has a `webhook_secret`. When it has one, every Sejoli status change of an order (`sejoli/order/set-status/{status}`) is queued in the table `{prefix}superlatif_bridge_events` and delivered, signed, to `<app origin of redirect_uri>/api/v1/integrations/commerce/sejoli_bridge/events`. Delivery is tried at the end of the request, then by WP-Cron every 5 minutes with backoff (about 22 hours), always with the same event ID and body.
+
+| Sejoli status                                           | Sent as           | App result                     |
+| ------------------------------------------------------- | ----------------- | ------------------------------ |
+| `completed`                                             | `payment_settled` | access granted                 |
+| `on-hold`, `payment-confirm`, `in-progress`, `shipping` | `order_pending`   | no access                      |
+| `refunded`                                              | `refund_full`     | this purchase's access revoked |
+| `cancelled`                                             | `order_cancelled` | this purchase's access revoked |
+
+Sent per event: order ID, product ID, WordPress user ID, the event type, and the amount. Nothing else - no email, name, phone, coupon, or affiliate data.
+
+Client entry additions in `wp-config.php`:
+
+```php
+'webhook_secret'           => getenv( 'SUPERLATIF_BRIDGE_STAGING_WEBHOOK_SECRET' ), // >= 32 chars, NOT the sign-in secret; the same value as the app's SEJOLI_WEBHOOK_SIGNING_SECRET
+'vercel_protection_bypass' => getenv( 'SUPERLATIF_BRIDGE_STAGING_VERCEL_BYPASS' ),  // optional, staging only (Vercel "Protection Bypass for Automation")
+```
+
+An invalid value disables commerce delivery for that client only (sign-in keeps working) and logs the client ID and the reason, never the value. A production client may not carry a Vercel bypass.
+
+Operations:
+
+- Delivery log: `SELECT event_id, order_id, event_type, status, attempts, last_http_status FROM {prefix}superlatif_bridge_events ORDER BY id DESC LIMIT 20;` (`pending` / `delivered` / `dead`).
+- Re-send a `dead` event after fixing the cause: `UPDATE {prefix}superlatif_bridge_events SET status = 'pending', attempts = 0, next_attempt_at = UNIX_TIMESTAMP() WHERE event_id = '<id>';` - the same event ID is safe to resend, the app deduplicates it.
+- WP-Cron only runs when the site gets traffic. On a quiet staging site, run `wp cron event run superlatif_bridge_commerce_deliver` to trigger a retry right away.
 
 # OD-02 spike package
 

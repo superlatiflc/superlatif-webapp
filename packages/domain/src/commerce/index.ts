@@ -28,6 +28,7 @@ export { REDACTED_PLACEHOLDER, redactRawPayload } from "./payload-redaction.ts";
 export {
   PURCHASE_STATES,
   SEJOLI_BRIDGE_STATUS_MAP_V1,
+  WIRE_EVENT_TYPE_STATUS_MAP_V1,
   SUPPORTED_EVENT_TYPES,
   normalizeCommerceEvent,
   type CanonicalCommerceEvent,

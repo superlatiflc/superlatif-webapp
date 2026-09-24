@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SEJOLI_BRIDGE_STATUS_MAP_V1,
+  WIRE_EVENT_TYPE_STATUS_MAP_V1,
   normalizeCommerceEvent,
   type CommerceEventEnvelope,
 } from "./canonical-event.ts";
@@ -67,5 +68,47 @@ describe("required negative test: unknown event quarantine", () => {
       rawStatus: "totally_unknown_status",
       provider: "sejoli_bridge",
     });
+  });
+});
+
+describe("wire eventType map (M2, ADR-074)", () => {
+  function wire(eventType: string): CommerceEventEnvelope {
+    return envelope({ order: { ...envelope().order, status: eventType } });
+  }
+
+  it.each([
+    ["order_pending", "pending"],
+    ["payment_settled", "paid"],
+    ["payment_failed", "failed"],
+    ["order_expired", "expired"],
+    ["order_cancelled", "cancelled"],
+    ["refund_full", "refunded_full"],
+    ["refund_partial", "refunded_partial"],
+    ["chargeback_opened", "chargeback"],
+  ])("maps %s to %s", (eventType, expected) => {
+    const outcome = normalizeCommerceEvent(wire(eventType), "evt_1", WIRE_EVENT_TYPE_STATUS_MAP_V1);
+    expect(outcome.kind).toBe("ok");
+    if (outcome.kind === "ok") expect(outcome.event.order.status).toBe(expected);
+  });
+
+  it("quarantines chargeback_resolved instead of guessing its outcome", () => {
+    const outcome = normalizeCommerceEvent(
+      wire("chargeback_resolved"),
+      "evt_1",
+      WIRE_EVENT_TYPE_STATUS_MAP_V1,
+    );
+    expect(outcome).toEqual({
+      kind: "unknown_status",
+      rawStatus: "chargeback_resolved",
+      provider: "sejoli_bridge",
+    });
+  });
+
+  it("never accepts a raw Sejoli status as a wire event type", () => {
+    for (const raw of ["completed", "on-hold", "refunded", "paid"]) {
+      expect(normalizeCommerceEvent(wire(raw), "evt_1", WIRE_EVENT_TYPE_STATUS_MAP_V1).kind).toBe(
+        "unknown_status",
+      );
+    }
   });
 });

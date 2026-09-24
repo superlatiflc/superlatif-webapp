@@ -24,6 +24,7 @@ import {
   verifyWebhookSignature,
   type CommerceEventEnvelope,
   type ProviderStatusMap,
+  type SignatureOutcome,
 } from "@superlatif/domain/commerce";
 import { computeChecksum, type JsonValue } from "@superlatif/domain/shared";
 import type { Schema } from "../db-types.ts";
@@ -51,6 +52,15 @@ export interface IngestCommerceEventInput {
   readonly providedSignature: string | null;
   /** Never a real production secret in this task - synthetic/test value only, injected by the caller. */
   readonly secret: string | null;
+  /**
+   * M2 (ADR-074): the HTTP ingress verifies the signature over the EXACT raw
+   * request bytes plus key ID, timestamp, and event ID - material this
+   * function never sees. When supplied, this outcome is recorded as-is and
+   * the stand-in HMAC above is skipped; `providedSignature`/`secret` are then
+   * ignored. Everything else - raw row, quarantine, normalization, dedupe -
+   * is unchanged.
+   */
+  readonly precomputedSignatureOutcome?: SignatureOutcome;
   readonly correlationId: string;
   readonly statusMap: ProviderStatusMap;
 }
@@ -97,7 +107,9 @@ export async function ingestCommerceEvent(
 
   // Stand-in for real raw HTTP bytes - see this module's doc.
   const rawBody = JSON.stringify(canonicalPayload);
-  const signatureOutcome = verifyWebhookSignature(rawBody, input.providedSignature, input.secret);
+  const signatureOutcome =
+    input.precomputedSignatureOutcome ??
+    verifyWebhookSignature(rawBody, input.providedSignature, input.secret);
   const payloadChecksum = computeChecksum(canonicalPayload);
   const rawPayloadRedacted = redactRawPayload(canonicalPayload) as Record<string, unknown>;
 

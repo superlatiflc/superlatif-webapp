@@ -34,6 +34,11 @@ describe("rate limit policy", () => {
     expect(RATE_LIMIT_RULES.signin_handle).toMatchObject({ limit: 10, windowSeconds: 3600 });
     expect(RATE_LIMIT_RULES.attempt_start).toMatchObject({ limit: 10, windowSeconds: 300 });
     expect(RATE_LIMIT_RULES.lease_takeover).toMatchObject({ limit: 5, windowSeconds: 300 });
+    expect(RATE_LIMIT_RULES.commerce_webhook_unverified).toMatchObject({
+      limit: 30,
+      windowSeconds: 600,
+      batchSize: 1,
+    });
     expect(RATE_LIMIT_RULES.attempt_submit).toMatchObject({ limit: 5, windowSeconds: 60 });
     expect(RATE_LIMIT_RULES.answer_save).toMatchObject({ limit: 600, windowSeconds: 60 });
   });

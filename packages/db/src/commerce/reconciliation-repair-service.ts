@@ -28,6 +28,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { authorize } from "@superlatif/domain/authorization";
 import type { EffectiveAccessCache } from "@superlatif/domain/access";
 import type { PurchaseState } from "@superlatif/domain/commerce";
+import { buyerIdentityProviderFor } from "@superlatif/domain/identity";
 import type { Schema } from "../db-types.ts";
 import { listActiveRoleHoldings } from "../authorization/index.ts";
 import { recordGrantEventAndInvalidate } from "../access/effective-access-service.ts";
@@ -153,7 +154,11 @@ async function repairUnresolvedIdentity(
   if (!normalizedEvent) {
     return { kind: "still_blocked", caseId: kase.id, reason: "related normalized event no longer found" };
   }
-  const identity = await findExternalIdentity(tx, normalizedEvent.provider, normalizedEvent.externalUserId);
+  const identity = await findExternalIdentity(
+    tx,
+    buyerIdentityProviderFor(normalizedEvent.provider),
+    normalizedEvent.externalUserId,
+  );
   if (!identity) {
     return { kind: "still_blocked", caseId: kase.id, reason: "identity still unresolved" };
   }

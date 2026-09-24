@@ -140,7 +140,7 @@ async function createStudent(externalUserId: string): Promise<string> {
   });
   await linkExternalIdentity(handle.db, {
     userId: user.userId,
-    provider: "sejoli_bridge",
+    provider: "wordpress",
     externalSubject: externalUserId,
     linkReason: "test fixture",
   });

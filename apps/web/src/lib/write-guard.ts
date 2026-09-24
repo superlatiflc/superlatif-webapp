@@ -35,3 +35,14 @@ export function examWriteBlockReason(): WriteBlockReason | null {
 export function examWritesPermitted(): boolean {
   return examWriteBlockReason() === null;
 }
+
+/**
+ * Why a commerce webhook must not change purchases or access right now, or
+ * null (M2, ADR-074). Same order as the exam guard: an incident freeze
+ * reports as a freeze.
+ */
+export function commerceWriteBlockReason(): WriteBlockReason | null {
+  if (!isProductionWriteAllowed()) return "writes_disabled";
+  if (!isCapabilityEnabled("FEATURE_COMMERCE_SYNC")) return "feature_disabled";
+  return null;
+}

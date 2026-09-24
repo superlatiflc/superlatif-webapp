@@ -8,9 +8,13 @@
  *
  *   define( 'SUPERLATIF_BRIDGE_CLIENTS', array(
  *       'superlatif-web-staging' => array(
- *           'secret'       => getenv( 'SUPERLATIF_BRIDGE_STAGING_SECRET' ),
- *           'redirect_uri' => 'https://<staging-host>/auth/bridge/callback',
- *           'environment'  => 'staging',
+ *           'secret'         => getenv( 'SUPERLATIF_BRIDGE_STAGING_SECRET' ),
+ *           'redirect_uri'   => 'https://<staging-host>/auth/bridge/callback',
+ *           'environment'    => 'staging',
+ *           // Optional (M2, ADR-074): deliver Sejoli order events to this app.
+ *           'webhook_secret' => getenv( 'SUPERLATIF_BRIDGE_STAGING_WEBHOOK_SECRET' ),
+ *           // Optional, staging only: Vercel "Protection Bypass for Automation" value.
+ *           'vercel_protection_bypass' => getenv( 'SUPERLATIF_BRIDGE_STAGING_VERCEL_BYPASS' ),
  *       ),
  *   ) );
  *
@@ -28,7 +32,11 @@ defined( 'ABSPATH' ) || exit;
  * Valid configured clients, keyed by client ID. Invalid entries are dropped
  * (fail closed) and reported by name only - never with their values.
  *
- * @return array<string, array{secret: string, redirect_uri: string, environment: string}>
+ * `webhook_secret` / `vercel_protection_bypass` are optional (ADR-074). An
+ * invalid one disables only commerce delivery for that client - sign-in keeps
+ * working - and is reported by name, never by value.
+ *
+ * @return array<string, array{secret: string, redirect_uri: string, environment: string, webhook_secret: ?string, vercel_protection_bypass: ?string}>
  */
 function superlatif_bridge_clients(): array {
 	// wp-config.php cannot change mid-request: validate (and report) once.
@@ -48,13 +56,56 @@ function superlatif_bridge_clients(): array {
 			error_log( 'superlatif-app-bridge: ignoring client ' . ( is_string( $client_id ) ? $client_id : '?' ) . ': ' . $problem ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			continue;
 		}
+		$webhook = superlatif_bridge_webhook_settings( $client_id, $client );
 		$clients[ $client_id ] = array(
-			'secret'       => $client['secret'],
-			'redirect_uri' => $client['redirect_uri'],
-			'environment'  => $client['environment'],
+			'secret'                   => $client['secret'],
+			'redirect_uri'             => $client['redirect_uri'],
+			'environment'              => $client['environment'],
+			'webhook_secret'           => $webhook['webhook_secret'],
+			'vercel_protection_bypass' => $webhook['vercel_protection_bypass'],
 		);
 	}
 	return $clients;
+}
+
+/**
+ * Validated commerce-delivery settings of an otherwise valid client.
+ *
+ * @return array{webhook_secret: ?string, vercel_protection_bypass: ?string}
+ */
+function superlatif_bridge_webhook_settings( string $client_id, array $client ): array {
+	$none    = array(
+		'webhook_secret'           => null,
+		'vercel_protection_bypass' => null,
+	);
+	$secret  = $client['webhook_secret'] ?? null;
+	if ( null === $secret || false === $secret || '' === $secret ) {
+		return $none;
+	}
+	$problem = null;
+	if ( ! is_string( $secret ) || strlen( $secret ) < 32 ) {
+		$problem = 'webhook_secret shorter than 32 characters';
+	} elseif ( hash_equals( $client['secret'], $secret ) ) {
+		$problem = 'webhook_secret must differ from the sign-in secret';
+	}
+	$bypass = $client['vercel_protection_bypass'] ?? null;
+	if ( null === $problem && null !== $bypass && false !== $bypass && '' !== $bypass ) {
+		if ( ! is_string( $bypass ) || 1 !== preg_match( '/^[A-Za-z0-9_-]{16,128}$/', $bypass ) ) {
+			$problem = 'vercel_protection_bypass is malformed';
+		} elseif ( 'production' === $client['environment'] ) {
+			$problem = 'vercel_protection_bypass is not allowed for a production client';
+		}
+	} else {
+		$bypass = null;
+	}
+	if ( null !== $problem ) {
+		error_log( 'superlatif-app-bridge: commerce delivery disabled for client ' . $client_id . ': ' . $problem ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		return $none;
+	}
+	return array(
+		'webhook_secret'           => $secret,
+		'vercel_protection_bypass' => $bypass,
+	);
 }
 
 /**

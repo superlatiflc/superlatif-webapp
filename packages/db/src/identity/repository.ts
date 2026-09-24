@@ -36,6 +36,21 @@ export async function findExternalIdentity(
   return row ?? null;
 }
 
+/** Every external identity linked to one app user (M2 claim: which WordPress subject does this user own). */
+export async function listExternalIdentitiesForUser(
+  db: Queryable<Schema>,
+  userId: string,
+): Promise<ExistingExternalIdentity[]> {
+  return db
+    .select({
+      userId: externalIdentities.userId,
+      provider: externalIdentities.provider,
+      externalSubject: externalIdentities.externalSubject,
+    })
+    .from(externalIdentities)
+    .where(eq(externalIdentities.userId, userId));
+}
+
 export async function findUsersByContact(
   db: Queryable<Schema>,
   candidate: Pick<IdentityLinkCandidate, "emailNormalized" | "phoneE164">,

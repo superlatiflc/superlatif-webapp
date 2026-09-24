@@ -5,10 +5,10 @@
 // is the one function that mutates an existing row); `purchase_events` rows
 // are append-only, never updated.
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { PurchaseState } from "@superlatif/domain/commerce";
 import type { Queryable, Schema } from "../db-types.ts";
-import { purchaseEvents, purchases } from "../schema/index.ts";
+import { normalizedCommerceEvents, purchaseEvents, purchases } from "../schema/index.ts";
 
 export interface PurchaseRow {
   readonly id: string;
@@ -152,7 +152,12 @@ export async function updatePurchaseStatus(
   await db.update(purchases).set(patch).where(eq(purchases.id, purchaseId));
 }
 
-export type PurchaseTransitionOutcomeLabel = "applied" | "ignored_duplicate" | "ignored_out_of_order";
+export type PurchaseTransitionOutcomeLabel =
+  | "applied"
+  | "ignored_duplicate"
+  | "ignored_out_of_order"
+  /** M2 (ADR-074): the event names a different buyer than the purchase is bound to - recorded, never applied. */
+  | "ignored_identity_mismatch";
 
 export interface CreatePurchaseEventInput {
   readonly purchaseId: string;
@@ -210,4 +215,70 @@ export async function listPurchaseEvents(
     .select(PURCHASE_EVENT_COLUMNS)
     .from(purchaseEvents)
     .where(eq(purchaseEvents.purchaseId, purchaseId));
+}
+
+// --- Buyer binding (M2, ADR-074) --------------------------------------------
+
+/** Row-locks one purchase for the rest of the transaction, so two concurrent claims cannot both bind it. */
+export async function lockPurchaseById(db: Queryable<Schema>, id: string): Promise<PurchaseRow | null> {
+  const [row] = await db
+    .select(PURCHASE_COLUMNS)
+    .from(purchases)
+    .where(eq(purchases.id, id))
+    .limit(1)
+    .for("update");
+  return row ?? null;
+}
+
+/**
+ * The distinct buyer subjects (`externalUserId`) across EVERY event recorded
+ * for a purchase. A purchase is bindable to a buyer only when this is exactly
+ * that one subject - two different subjects on one order is a conflict for a
+ * human, never a guess.
+ */
+export async function listBuyerSubjectsForPurchase(
+  db: Queryable<Schema>,
+  purchaseId: string,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ subject: normalizedCommerceEvents.externalUserId })
+    .from(purchaseEvents)
+    .innerJoin(normalizedCommerceEvents, eq(normalizedCommerceEvents.id, purchaseEvents.normalizedEventId))
+    .where(eq(purchaseEvents.purchaseId, purchaseId));
+  return rows.map((row) => row.subject);
+}
+
+/** The newest normalized event behind a purchase - the reference a late grant decision is attributed to. */
+export async function findLatestNormalizedEventIdForPurchase(
+  db: Queryable<Schema>,
+  purchaseId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: purchaseEvents.normalizedEventId })
+    .from(purchaseEvents)
+    .where(eq(purchaseEvents.purchaseId, purchaseId))
+    .orderBy(desc(purchaseEvents.occurredAt), desc(purchaseEvents.createdAt))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/** Purchases of one commerce provider still waiting for a buyer, that name `subject` as their buyer. */
+export async function listUnboundPurchaseIdsForBuyer(
+  db: Queryable<Schema>,
+  provider: string,
+  subject: string,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ id: purchases.id })
+    .from(purchases)
+    .innerJoin(purchaseEvents, eq(purchaseEvents.purchaseId, purchases.id))
+    .innerJoin(normalizedCommerceEvents, eq(normalizedCommerceEvents.id, purchaseEvents.normalizedEventId))
+    .where(
+      and(
+        eq(purchases.provider, provider),
+        isNull(purchases.userId),
+        eq(normalizedCommerceEvents.externalUserId, subject),
+      ),
+    );
+  return rows.map((row) => row.id);
 }
