@@ -17,6 +17,8 @@ import {
   BRIDGE_HEADERS,
   BRIDGE_REST_ROUTE,
   BRIDGE_AUTHORIZE_ACTION,
+  BRIDGE_AUTHORIZE_QUERY_VALUE,
+  BRIDGE_AUTHORIZE_QUERY_VAR,
   bridgeSignatureMatches,
   isBridgeTimestampFresh,
   parseIdentityClaims,
@@ -84,8 +86,27 @@ export function bridgeExchangeUrl(baseUrl: string): URL {
   return url;
 }
 
-/** Where the browser is sent to obtain a code. Carries no identity - only which app is asking, and the state to echo. */
+/**
+ * Where the browser is sent to obtain a code. Carries no identity - only
+ * which app is asking, and the state to echo.
+ *
+ * A front-end URL, not `/wp-admin/admin-post.php` (ADR-073): membership
+ * plugins guard `/wp-admin/*` on `admin_init`, which runs before the
+ * plugin's own handler, so the admin entry point never reached it.
+ */
 export function bridgeAuthorizeUrl(baseUrl: string, clientId: string, state: string): URL {
+  const url = siteRoot(baseUrl);
+  url.searchParams.set(BRIDGE_AUTHORIZE_QUERY_VAR, BRIDGE_AUTHORIZE_QUERY_VALUE);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("state", state);
+  return url;
+}
+
+/**
+ * The pre-ADR-073 admin-post entry point. The plugin still serves it, so a
+ * rollback to an older app build keeps working; nothing in the app calls this.
+ */
+export function legacyBridgeAuthorizeUrl(baseUrl: string, clientId: string, state: string): URL {
   const url = siteRoot(baseUrl);
   url.pathname += "wp-admin/admin-post.php";
   url.searchParams.set("action", BRIDGE_AUTHORIZE_ACTION);

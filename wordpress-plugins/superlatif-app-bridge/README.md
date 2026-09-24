@@ -2,7 +2,7 @@
 
 One-time sign-in bridge from the Superlatif WordPress site to the Superlatif Web App. It covers M1 and is recorded as ADR-072 in `docs/gates/26_ADRS.md`.
 
-> **Status: NOT INSTALLED anywhere.** This plugin has only run in the repository's own tests and in a local, throwaway WordPress Playground. Do not install it on the live `superlatif.id` until the OD-02 spike below passes on a staging copy and the founder approves production activation.
+> **Status: installed on the WordPress STAGING copy only** (version 1.1.0; OD-02 staging acceptance PASS on 24 September 2026 — `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). It is **not** installed on the live `superlatif.id`. Do not install it there until the founder approves production activation, and configure the LiteSpeed exclusion below first.
 
 ## What it does, and what it does not do
 
@@ -20,8 +20,9 @@ One-time sign-in bridge from the Superlatif WordPress site to the Superlatif Web
 Browser            Web App                         WordPress (this plugin)
    | GET /auth/bridge/start?next=/tryouts
    |------------------->| mint state; httpOnly __Host- state cookie
-   |<-- 307 ------------| to /wp-admin/admin-post.php?action=superlatif_bridge_authorize&client_id&state
-   |------------------------------------------------->| not logged in? -> wp-login.php, then back
+   |<-- 307 ------------| to /?superlatif_bridge=authorize&client_id&state
+   |------------------------------------------------->| not logged in? -> login page, remember flow in
+   |                                                  | superlatif_bridge_pending (HMAC, 10 min), then back
    |                                                  | logged in: store sha256(code), client, user, sha256(state), exp=+120s
    |<-- 302 to the client's CONFIGURED redirect_uri ?code&state ------|
    | GET /auth/bridge/callback?code&state
@@ -36,18 +37,41 @@ Browser            Web App                         WordPress (this plugin)
 
 ## Security properties
 
-| Property              | How                                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Single use            | One conditional `UPDATE ... WHERE used_at IS NULL`. A code shown with the wrong state, by the wrong client, or after expiry is burned as well       |
-| Short TTL             | 120 s (`SUPERLATIF_BRIDGE_CODE_TTL`). App-side state cookie: 10 min                                                                                 |
-| Audience binding      | A code is stored with its client ID and redeemable only by the same client. The app checks that the signed `audience` equals its own client ID      |
-| Environment binding   | Each client has one environment. The app states its `APP_ENV` in the request and checks the signed `environment`                                    |
-| Client authentication | HMAC-SHA256 over `v1\n<timestamp>\n<raw body>`, ±300 s window, compared with `hash_equals`. The secret never crosses the wire                       |
-| Response integrity    | HMAC over the canonical claims (`v1`, timestamp, version, subject, audience, environment)                                                           |
-| Login CSRF            | The state is minted by the app, bound into the code, and must match an httpOnly cookie held only by the browser that started the flow               |
-| No open redirect      | The plugin redirects only to the client's configured `redirect_uri` (through `wp_safe_redirect`). The app redirects only to allowlisted local paths |
-| Minimal data          | The code table holds hashes, a client ID, a user ID, and timestamps. Rows are purged 24 h after expiry                                              |
-| Sanitized errors      | `invalid_client` (401), `invalid_request` (400), `invalid_grant` (400), with fixed messages that never say which check failed                       |
+| Property              | How                                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Single use            | One conditional `UPDATE ... WHERE used_at IS NULL`. A code shown with the wrong state, by the wrong client, or after expiry is burned as well                                                 |
+| Short TTL             | 120 s (`SUPERLATIF_BRIDGE_CODE_TTL`). App-side state cookie: 10 min                                                                                                                           |
+| Audience binding      | A code is stored with its client ID and redeemable only by the same client. The app checks that the signed `audience` equals its own client ID                                                |
+| Environment binding   | Each client has one environment. The app states its `APP_ENV` in the request and checks the signed `environment`                                                                              |
+| Client authentication | HMAC-SHA256 over `v1\n<timestamp>\n<raw body>`, ±300 s window, compared with `hash_equals`. The secret never crosses the wire                                                                 |
+| Response integrity    | HMAC over the canonical claims (`v1`, timestamp, version, subject, audience, environment)                                                                                                     |
+| Login CSRF            | The state is minted by the app, bound into the code, and must match an httpOnly cookie held only by the browser that started the flow                                                         |
+| No open redirect      | The plugin redirects only to the client's configured `redirect_uri` (through `wp_safe_redirect`). The app redirects only to allowlisted local paths                                           |
+| Minimal data          | The code table holds hashes, a client ID, a user ID, and timestamps. Rows are purged 24 h after expiry                                                                                        |
+| Sanitized errors      | `invalid_client` (401), `invalid_request` (400), `invalid_grant` (400), with fixed messages that never say which check failed                                                                 |
+| Not cacheable         | The authorize response carries a code, so it is sent uncacheable by several independent layers. See "Cache exclusion" below - it is a security control, not a performance tweak               |
+| Login detour          | `superlatif_bridge_pending`: HttpOnly, Secure, SameSite=Lax, Path=/, 10 min, HMAC-signed, single use. Holds `client_id` + `state` only, never a URL; the authorize URL is rebuilt server-side |
+| Ordinary logins       | With no pending cookie every hook returns immediately, so the site's own post-login destination is untouched                                                                                  |
+
+## Cache exclusion (required before student traffic)
+
+The authorize response carries a single-use code in its `Location` header. If a page cache or CDN stores it, one learner's code can be served to the next visitor. The plugin already sends `DONOTCACHEPAGE`, `nocache_headers()`, `Cache-Control: no-store`, `X-LiteSpeed-Cache-Control: no-cache, no-store`, the `litespeed_control_set_nocache` action, `X-Accel-Expires: 0`, `CDN-Cache-Control: no-store`, and `Vary: Cookie`. Configure the cache layer as well - defence in depth, because one misconfigured layer is all it takes.
+
+**LiteSpeed Cache (superlatif.id and its staging copy):** WP Admin → LiteSpeed Cache → Cache → Excludes → **Do Not Cache Query Strings**, add:
+
+```text
+superlatif_bridge
+```
+
+If your LiteSpeed build offers **Do Not Cache URIs** instead of (or in addition to) query strings, add the site root with that query var, for example `/?superlatif_bridge=authorize`. On QUIC.cloud CDN, add the same query string to its cache exclusions. Behind Cloudflare, ensure no Cache Rule stores responses for URLs carrying `superlatif_bridge`.
+
+**Verify after configuring**, twice in a row, while logged out:
+
+```bash
+curl -sI "https://<wordpress-host>/?superlatif_bridge=authorize&client_id=<client>&state=<43-char-token>" | grep -iE "cache|location"
+```
+
+Expected: `cache-control: no-store…`, `x-litespeed-cache-control: no-cache, no-store`, and **no** `x-litespeed-cache: hit`. Two consecutive requests by a logged-in user must produce two different `code` values.
 
 ## Configuration (wp-config.php only)
 
@@ -93,6 +117,8 @@ Steps:
    Store it in your password manager.
 4. **wp-config.php** on the staging copy: add the `SUPERLATIF_BRIDGE_CLIENTS` block above. Use client ID `superlatif-web-staging`, environment `staging`, and a `redirect_uri` on the Preview host that will run the test. Paste the secret directly on the server, or set it as a host environment variable.
 5. **Upload and activate:** go to Plugins → Add New → Upload Plugin, choose `superlatif-app-bridge.zip`, then Activate. Activation creates `{prefix}superlatif_bridge_codes` and the option `superlatif_bridge_db_version`.
+   **If this staging site still carries the OD-02 workaround mu-plugins, delete them now:** `wp-content/mu-plugins/10-bridge-authorize-pass.php` and `wp-content/mu-plugins/20-bridge-login-return.php`. From version 1.1.0 the plugin handles both jobs itself (ADR-073), and leaving them in place would mean the spike keeps testing the workaround instead of the shipped path.
+   Then configure the cache exclusion described in "Cache exclusion" above.
 6. **Vercel (Preview scope only):**
    `vercel env add WP_BRIDGE_BASE_URL preview` (the staging WordPress root, `https://…`)
    `vercel env add WP_BRIDGE_CLIENT_ID preview` (`superlatif-web-staging`)
@@ -104,21 +130,23 @@ Steps:
 
 Use **dedicated test accounts** created for the spike, never a real student. Record results in the table in §6. Before sharing any evidence, replace every code, state, signature, cookie, and secret with `<redacted>`.
 
-| #   | Test                   | Steps                                                                                                                                                    | Expected                                                                                                   |
-| --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| T1  | Logged-out start       | In a private window, open `/signin` → "Masuk dengan akun Superlatif"                                                                                     | WordPress login page, then back to the app, landing on `/tryouts`, signed in                               |
-| T2  | Logged-in start        | Already logged in to WordPress, click the button                                                                                                         | Straight back to the app, signed in, with no WordPress prompt                                              |
-| T3  | Returning user         | Sign out of the app, then sign in again with the same account                                                                                            | Same internal user, not a second account. The app logs `linkDecision=link_existing`                        |
-| T4  | Replay                 | Capture a callback URL (browser devtools, Network tab, "Preserve log"), let it complete, then open the same URL again                                    | `/signin?error=bridge`, no second session                                                                  |
-| T5  | Expiry                 | Block the callback (for example, go offline once the WordPress redirect fires), wait over 120 s, then load the callback URL                              | `/signin?error=bridge`                                                                                     |
-| T6  | Wrong state            | Start in browser A, then open the callback URL in browser B                                                                                              | `/signin?error=bridge` (B has no state cookie); the code is burned                                         |
-| T7  | Cross-environment      | Temporarily point a local app at the staging WordPress with a **different** client (for example a `development` client) and try to redeem a staging code | Rejected. The code is never accepted by the other client                                                   |
-| T8  | Wrong secret           | Briefly set a wrong `WP_BRIDGE_CLIENT_SECRET` on a throwaway Preview deployment                                                                          | `/signin?error=bridge_unavailable`; the Vercel log shows `auth.bridge.exchange_failed` / `client_rejected` |
-| T9  | Server-to-server reach | T1/T2 from a Vercel Preview deployment, not from a laptop                                                                                                | No WAF or CDN challenge on `POST /?rest_route=/superlatif-bridge/v1/exchange`. Note the latency            |
-| T10 | Deleted account        | Issue a code, delete that test user in WordPress before the redirect completes (or use T5's pause), then load the callback                               | `/signin?error=bridge`                                                                                     |
-| T11 | Data minimality        | `SELECT * FROM {prefix}superlatif_bridge_codes LIMIT 5` on the staging database                                                                          | Only hashes, client ID, user ID, and timestamps. No code, email, or IP                                     |
-| T12 | No side effects        | Compare user count, Sejoli order count, and a test user's roles before and after the spike                                                               | Unchanged                                                                                                  |
-| T13 | Uninstall              | Run §7 on the staging copy                                                                                                                               | Table and option gone; users and Sejoli untouched                                                          |
+| #   | Test                     | Steps                                                                                                                                                    | Expected                                                                                                                                   |
+| --- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| T1  | Logged-out start         | In a private window, open `/signin` → "Masuk dengan akun Superlatif"                                                                                     | WordPress login page, then back to the app, landing on `/tryouts`, signed in                                                               |
+| T2  | Logged-in start          | Already logged in to WordPress, click the button                                                                                                         | Straight back to the app, signed in, with no WordPress prompt                                                                              |
+| T3  | Returning user           | Sign out of the app, then sign in again with the same account                                                                                            | Same internal user, not a second account. The app logs `linkDecision=link_existing`                                                        |
+| T4  | Replay                   | Capture a callback URL (browser devtools, Network tab, "Preserve log"), let it complete, then open the same URL again                                    | `/signin?error=bridge`, no second session                                                                                                  |
+| T5  | Expiry                   | Block the callback (for example, go offline once the WordPress redirect fires), wait over 120 s, then load the callback URL                              | `/signin?error=bridge`                                                                                                                     |
+| T6  | Wrong state              | Start in browser A, then open the callback URL in browser B                                                                                              | `/signin?error=bridge` (B has no state cookie); the code is burned                                                                         |
+| T7  | Cross-environment        | Temporarily point a local app at the staging WordPress with a **different** client (for example a `development` client) and try to redeem a staging code | Rejected. The code is never accepted by the other client                                                                                   |
+| T8  | Wrong secret             | Briefly set a wrong `WP_BRIDGE_CLIENT_SECRET` on a throwaway Preview deployment                                                                          | `/signin?error=bridge_unavailable`; the Vercel log shows `auth.bridge.exchange_failed` / `client_rejected`                                 |
+| T9  | Server-to-server reach   | T1/T2 from a Vercel Preview deployment, not from a laptop                                                                                                | No WAF or CDN challenge on `POST /?rest_route=/superlatif-bridge/v1/exchange`. Note the latency                                            |
+| T10 | Deleted account          | Issue a code, delete that test user in WordPress before the redirect completes (or use T5's pause), then load the callback                               | `/signin?error=bridge`                                                                                                                     |
+| T11 | Data minimality          | `SELECT * FROM {prefix}superlatif_bridge_codes LIMIT 5` on the staging database                                                                          | Only hashes, client ID, user ID, and timestamps. No code, email, or IP                                                                     |
+| T12 | No side effects          | Compare user count, Sejoli order count, and a test user's roles before and after the spike                                                               | Unchanged                                                                                                                                  |
+| T13 | Uninstall                | Run §7 on the staging copy                                                                                                                               | Table and option gone; users and Sejoli untouched                                                                                          |
+| T14 | **Authorize not cached** | Logged out, request the authorize URL twice (see "Cache exclusion"); then, logged in, start the flow twice                                               | `cache-control: no-store` and `x-litespeed-cache-control: no-cache, no-store`, never `x-litespeed-cache: hit`; two different `code` values |
+| T15 | Ordinary login intact    | Private window, log in directly at the site's own login page without going through `/signin`                                                             | Lands where members normally land (`/dashboard-utama/`), not at the app                                                                    |
 
 ## 3. The WordPress/Sejoli identifier that must be observed (M1 Phase A)
 

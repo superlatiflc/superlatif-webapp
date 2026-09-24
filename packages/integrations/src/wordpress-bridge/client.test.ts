@@ -9,6 +9,7 @@ import {
   exchangeBridgeCode,
   bridgeAuthorizeUrl,
   bridgeExchangeUrl,
+  legacyBridgeAuthorizeUrl,
   type BridgeClientConfig,
 } from "./client.ts";
 import { FakeWordPressBridge, signedClaims } from "./fake-wordpress-bridge.ts";
@@ -257,8 +258,25 @@ describe("URLs", () => {
 
   it("builds the authorize URL with only client id and state - never an identity", () => {
     const url = bridgeAuthorizeUrl("https://superlatif.id/", "superlatif-web-production", "S".repeat(43));
+    expect(url.origin + url.pathname).toBe("https://superlatif.id/");
+    expect([...url.searchParams.keys()].sort()).toEqual(["client_id", "state", "superlatif_bridge"]);
+    expect(url.searchParams.get("superlatif_bridge")).toBe("authorize");
+  });
+
+  it("never routes authorize through /wp-admin (ADR-073: membership plugins guard it)", () => {
+    const url = bridgeAuthorizeUrl("https://superlatif.id", "superlatif-web-production", "S".repeat(43));
+    expect(url.pathname).not.toContain("wp-admin");
+    expect(url.toString()).not.toContain("admin-post.php");
+  });
+
+  it("keeps the legacy admin-post builder available for rollback", () => {
+    const url = legacyBridgeAuthorizeUrl(
+      "https://superlatif.id",
+      "superlatif-web-production",
+      "S".repeat(43),
+    );
     expect(url.origin + url.pathname).toBe("https://superlatif.id/wp-admin/admin-post.php");
-    expect([...url.searchParams.keys()].sort()).toEqual(["action", "client_id", "state"]);
+    expect(url.searchParams.get("action")).toBe("superlatif_bridge_authorize");
   });
 
   it("drops any query or fragment carried in the configured base URL", () => {

@@ -45,10 +45,11 @@
 
 ## ADR-006 — Signed one-time WordPress bridge code
 
-**Status:** Provisional  
+**Status:** Accepted (was Provisional; validated 24 September 2026 — see the status update below)  
 **Decision:** Use a minimal bridge/plugin to exchange an authenticated WordPress identity for an app session.  
 **Consequences:** Seamless login; requires plugin security/key rotation.  
-**Validation:** Staging spike of available WordPress/Sejoli hooks and auth capability.
+**Validation:** Staging spike of available WordPress/Sejoli hooks and auth capability.  
+**Status update (24 September 2026):** the staging spike this ADR required has passed on the real WordPress/Sejoli staging copy, on the permanent path and without any workaround (`docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). The implementation is recorded in ADR-072 and ADR-073. Production activation remains a separate, founder-approved step.
 
 ## ADR-007 — Modular monolith
 
@@ -1595,6 +1596,8 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 ## ADR-072 — M1 / IDN-002: production student sign-in is the WordPress one-time bridge, gated by `FEATURE_STUDENT_LOGIN` independently of the write freeze, with no app migration
 
 **Status:** Accepted for implementation (founder approval, 10 September 2026). Production activation is NOT approved: OD-02 remains `BLOCKED_EXTERNAL` until the spike in `wordpress-plugins/superlatif-app-bridge/README.md` passes.
+**Revised by:** ADR-073 (12 September 2026) - the browser-facing authorize entry point moved off `/wp-admin/admin-post.php` to a front-end URL after the OD-02 staging spike found Sejoli guarding `/wp-admin/*`. Everything else in this ADR (identity namespace, flag semantics, no migration, session hardening, contract deviation, TTL finding) stands unchanged.
+**Status update (24 September 2026):** OD-02 staging acceptance PASS on the permanent path (ADR-073), recorded in `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`. The identity question left open below is answered with outcome (a): the Sejoli order's `user_id` equals the WordPress `users.ID`, so M2 can resolve Sejoli purchases to the `wordpress` identity by that ID with no bridge protocol change. Production activation is still NOT approved, and the session TTL decision below remains open.
 **Date:** 10 September 2026
 **Decided during:** M1 (production authentication). Refines ADR-006 (Provisional) and applies ADR-005.
 
@@ -1641,3 +1644,54 @@ Minimum founder confirmations:
 - the OD-02 spike result, including the §3 identifier outcome (a/b/c) that M2 depends on;
 - the session TTL policy above;
 - approval of each production activation step.
+
+## ADR-073 — M1 bridge: the authorize entry point moves off `/wp-admin/admin-post.php` to a front-end URL, the login detour is carried by an HMAC-signed pending cookie, and the front-end response is uncacheable by construction
+
+**Status:** Accepted for implementation (founder approval, 12 September 2026). Refines ADR-072, which stands in every other respect. Production activation still requires OD-02 to close.
+**Status update (24 September 2026):** staging acceptance PASS. T1, T2, T3, T9, T14 (cache), and T15 (ordinary Sejoli login) all passed on the real WordPress/Sejoli staging copy with both workaround mu-plugins removed, on a Preview whose tree is byte-identical to `edcf425` (`docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). OD-02 is closed for staging; production activation still needs the founder-approved steps.
+**Date:** 12 September 2026
+**Decided during:** the OD-02 staging spike, which passed end-to-end only after two temporary mu-plugins; this ADR removes the need for both.
+
+### What the spike found, and why the old entry point cannot work in production
+
+`admin-post.php` fires `do_action( 'admin_init' )` **before** it dispatches `admin_post_{action}`. Sejoli (the live commerce/membership plugin) guards `/wp-admin/*` on `admin_init`, so on staging every authorize request was redirected to the member area before the bridge plugin ran at all. Three requests proved it was not the plugin: the bridge action, an action that does not exist, and a request with no action at all all produced the identical `302 → /dashboard-utama/` with `x-redirect-by: WordPress`, and the `Referrer-Policy: no-referrer` header the handler sets on its first line was absent. `/wp-admin/` itself redirects to `/member-area/login`, not to `wp-login.php`.
+
+A second, independent breakage sat behind it: Sejoli filters `login_url` to its member-area page and drops the query string, so `wp_login_url( $return )` lost `redirect_to` before the learner ever typed a password, and its login form does not run WordPress's `login_redirect` filter. The staging workaround was a pair of mu-plugins (`10-bridge-authorize-pass.php`, `20-bridge-login-return.php`). Shipping those to production was rejected: they punch a hole through another plugin's security control from outside that plugin, and they would have to be re-applied after every WordPress migration.
+
+### Decision 1: a front-end authorize entry point
+
+`GET /?superlatif_bridge=authorize&client_id=…&state=…`, handled on `init` priority 0 and then `exit`. The front end is not guarded (verified: 200, no redirect), so **nothing in Sejoli is weakened, excluded, or reconfigured** - the bridge simply stops using a path that another plugin legitimately protects.
+
+Alternatives rejected, each for a concrete reason rather than taste:
+
+- **REST route.** WordPress treats a cookie-authenticated REST request with no `X-WP-Nonce` as logged out (`rest_cookie_check_errors`). A browser navigation carries no nonce, so a REST authorize endpoint could never see who is logged in. REST remains correct for the exchange, which is server-to-server and needs no cookie.
+- **`admin-ajax.php`.** Reachable today (verified: 400, not a redirect), but still under `/wp-admin/`, commonly covered by "block wp-admin" rules, and without template context. It moves the problem rather than solving it.
+- **A pretty rewrite (`/superlatif-bridge/authorize`).** Needs a rewrite flush on activation and can collide with permalink and Redirection rules. A root query var works under every permalink setting with no flush. It stays available as a later cosmetic change.
+
+### Decision 2: the login detour is carried by an HMAC-signed pending cookie, inside the plugin
+
+When the visitor is logged out, the plugin stores `client_id`, `state`, and an issue timestamp in `superlatif_bridge_pending` - HttpOnly, Secure, SameSite=Lax, Path=/, 10 minutes - signed with that client's own secret under a `pending.v1` domain prefix, so a value can never be replayed as an exchange signature. `redirect_to` is still passed to `wp_login_url()`; the cookie is what survives when Sejoli discards it.
+
+The cookie **contains no URL**. After login (`wp_login`, with a `template_redirect` fallback for AJAX login forms) the authorize URL is rebuilt server-side from `home_url()` plus the two identifiers, so a tampered cookie cannot redirect anywhere. Age is checked server-side as well as by the browser, and the cookie is cleared on every read, valid or not - single use by construction.
+
+The property that keeps ordinary logins intact is the same one the staging workaround had: **with no pending cookie, every hook returns immediately.** Sejoli's own default (`/dashboard-utama/`) is never touched, and a test asserts exactly that.
+
+### Decision 3: the authorize response must be uncacheable, and that is a security boundary
+
+This is the one genuinely new risk the move creates, and it is stated plainly because it is easy to miss: the old entry point lived under `/wp-admin/`, which no page cache stores. A front-end URL passes through LiteSpeed (live on `superlatif.id`) and any CDN, and the authorize response carries a single-use code in its `Location` header. A cached copy would hand one learner's code to the next visitor.
+
+Defence in depth, because any single layer can be misconfigured: `DONOTCACHEPAGE`/`DONOTCACHEOBJECT`/`DONOTCACHEDB`, `nocache_headers()`, `Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private`, `Pragma`, `Expires`, `X-LiteSpeed-Cache-Control: no-cache, no-store`, the `litespeed_control_set_nocache` action, `X-Accel-Expires: 0`, `CDN-Cache-Control: no-store`, and `Vary: Cookie`. README.md documents the LiteSpeed exclusion an operator must also configure, and the spike adds a cache test. The `state` binding is explicitly **not** counted as the mitigation here - it is a second line only, and treating it as the control would be the kind of reasoning that leaves a cache hole open.
+
+### Backward compatibility and rollback
+
+The plugin keeps serving the legacy `admin_post_*` action, and the app keeps `legacyBridgeAuthorizeUrl` unused in production code. So the plugin can be deployed before the app, an older app build keeps working against the new plugin, and a rollback needs no WordPress change. Rollback order: turn `FEATURE_STUDENT_LOGIN` off (routes 404), then revert the app, then deactivate the plugin, then delete it (uninstall drops its table). On staging, the two mu-plugins must be **deleted** once this version is installed, or the spike would keep testing the workaround instead of the shipped path.
+
+### Consequences
+
+No database migration, no env change, no identity/session/TTL change, and no change to `contracts/openapi.yaml` (which only defines `/auth/bridge/exchange`). The app's `/auth/bridge/start` and `/auth/bridge/callback` routes are untouched except for the URL the builder produces. Because the authorize step changed, the OD-02 evidence that covers it - T1-T3 and T9 - must be re-run on staging against this version; the exchange-side evidence (replay, expiry, state, audience, data minimality, uninstall) is unaffected.
+
+Minimum founder confirmations:
+
+- the LiteSpeed exclusion is configured on staging, and later on production, before student traffic;
+- the two staging mu-plugins are deleted after this version is installed;
+- a re-run of T1-T3, T9, and the new cache test on staging.
