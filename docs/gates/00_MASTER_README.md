@@ -118,7 +118,7 @@ Jika lapisan bawah bertentangan dengan lapisan di atasnya, implementasi dihentik
 | OQ-002 | Berapa masa berlaku setiap produk Sejoli yang masih aktif? | Diatur per offer; jangan memakai satu durasi universal. |
 | OQ-003 | Apakah siswa dapat membeli dari dalam app pada MVP? | Diputuskan: ya, melalui handoff transparan ke checkout Sejoli, bukan payment native. |
 | OQ-004 | Apakah direct Duitku wajib pada MVP? | Tidak. Ditunda sampai Sejoli terbukti menjadi hambatan. |
-| OQ-005 | Domain canonical app? | Diputuskan: `app.superlatif.id`. |
+| OQ-005 | Domain canonical app? | Diputuskan final (founder, 24 Sep 2026): `app.superlatif.id` adalah domain kanonik Production. DNS dan domain Vercel belum dikonfigurasi; itu langkah aktivasi terpisah yang butuh persetujuan. |
 | OQ-006 | Apakah Kelas Akselerasi selalu mencakup seluruh track seleksi lanjutan? | Dibuat configurable; isi offer menentukan track yang benar-benar termasuk. |
 | OQ-007 | Apakah tutor dapat publish langsung? | Diputuskan: tidak. Tutor submit, moderator/academic admin berbeda approve, admin menjadwalkan/publish. |
 | OQ-008 | Apakah nama peserta leaderboard tampil publik secara default? | Diputuskan: tidak. Display name aman hanya tampil setelah opt-in. |

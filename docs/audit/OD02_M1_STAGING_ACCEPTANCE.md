@@ -68,7 +68,7 @@ The exchange side (REST endpoint, code store, signing) is unchanged since the 12
 
 ## 7. Remaining for M1 production activation (each step needs founder approval)
 
-1. Confirm the production app host. `00_MASTER_README.md` OQ-005 records `app.superlatif.id` as decided, while the launch plan still describes the hostname as open; the production client's `redirect_uri` depends on it.
+1. ~~Confirm the production app host.~~ **Decided 24 September 2026:** the founder confirmed `app.superlatif.id` as the final canonical Production domain (OQ-005). The launch plan now uses that host too. Still to do, each as an approved step: the DNS record and the Vercel Production domain. The production client's `redirect_uri` must then use this host. Because the bridge cookies are `__Host-` (host-only), sign-in has to start and finish on `app.superlatif.id`, not on the `vercel.app` alias. No DNS, domain, or `redirect_uri` has been configured yet.
 2. Decide the session TTL policy (ADR-072 recommendation).
 3. Move production Supabase to a plan without auto-pause and confirm PITR (M6).
 4. On `superlatif.id`: configure the LiteSpeed `superlatif_bridge` exclusion, add a **production** client with a **new** secret to `wp-config.php`, install plugin 1.1.0.
