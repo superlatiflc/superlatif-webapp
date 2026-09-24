@@ -123,7 +123,7 @@ Jika lapisan bawah bertentangan dengan lapisan di atasnya, implementasi dihentik
 | OQ-007 | Apakah tutor dapat publish langsung? | Diputuskan: tidak. Tutor submit, moderator/academic admin berbeda approve, admin menjadwalkan/publish. |
 | OQ-008 | Apakah nama peserta leaderboard tampil publik secara default? | Diputuskan: tidak. Display name aman hanya tampil setelah opt-in. |
 | OQ-009 | Apakah data payload/signature/retry Sejoli sudah terverifikasi? | Belum; OD-01 hard gate melalui staging spike. |
-| OQ-010 | Apakah WordPress one-time bridge/SSO tersedia dan aman? | Belum; OD-02 hard gate melalui staging spike. |
+| OQ-010 | Apakah WordPress one-time bridge/SSO tersedia dan aman? | Ya untuk staging (24 Sep 2026): bridge one-time terbukti di WordPress/Sejoli staging pada jalur permanen tanpa workaround — bukti di `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md` (ADR-072/073). Aktivasi production tetap menunggu langkah yang disetujui founder. |
 | OQ-011 | Apakah aturan SKD Sekdin 2026 final tersedia? | Belum; benar tetap terbuka sampai sumber resmi terverifikasi. |
 | OQ-012 | Apakah review hukum minor/consent/retention selesai? | Belum; struktur data disiapkan, production gate tetap tertutup. |
 

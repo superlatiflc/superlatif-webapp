@@ -45,10 +45,11 @@
 
 ## ADR-006 — Signed one-time WordPress bridge code
 
-**Status:** Provisional  
+**Status:** Accepted (was Provisional; validated 24 September 2026 — see the status update below)  
 **Decision:** Use a minimal bridge/plugin to exchange an authenticated WordPress identity for an app session.  
 **Consequences:** Seamless login; requires plugin security/key rotation.  
-**Validation:** Staging spike of available WordPress/Sejoli hooks and auth capability.
+**Validation:** Staging spike of available WordPress/Sejoli hooks and auth capability.  
+**Status update (24 September 2026):** the staging spike this ADR required has passed on the real WordPress/Sejoli staging copy, on the permanent path and without any workaround (`docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). The implementation is recorded in ADR-072 and ADR-073. Production activation remains a separate, founder-approved step.
 
 ## ADR-007 — Modular monolith
 
@@ -1596,6 +1597,7 @@ Audit findings must update ADR status rather than silently editing conclusions. 
 
 **Status:** Accepted for implementation (founder approval, 10 September 2026). Production activation is NOT approved: OD-02 remains `BLOCKED_EXTERNAL` until the spike in `wordpress-plugins/superlatif-app-bridge/README.md` passes.
 **Revised by:** ADR-073 (12 September 2026) - the browser-facing authorize entry point moved off `/wp-admin/admin-post.php` to a front-end URL after the OD-02 staging spike found Sejoli guarding `/wp-admin/*`. Everything else in this ADR (identity namespace, flag semantics, no migration, session hardening, contract deviation, TTL finding) stands unchanged.
+**Status update (24 September 2026):** OD-02 staging acceptance PASS on the permanent path (ADR-073), recorded in `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`. The identity question left open below is answered with outcome (a): the Sejoli order's `user_id` equals the WordPress `users.ID`, so M2 can resolve Sejoli purchases to the `wordpress` identity by that ID with no bridge protocol change. Production activation is still NOT approved, and the session TTL decision below remains open.
 **Date:** 10 September 2026
 **Decided during:** M1 (production authentication). Refines ADR-006 (Provisional) and applies ADR-005.
 
@@ -1646,6 +1648,7 @@ Minimum founder confirmations:
 ## ADR-073 — M1 bridge: the authorize entry point moves off `/wp-admin/admin-post.php` to a front-end URL, the login detour is carried by an HMAC-signed pending cookie, and the front-end response is uncacheable by construction
 
 **Status:** Accepted for implementation (founder approval, 12 September 2026). Refines ADR-072, which stands in every other respect. Production activation still requires OD-02 to close.
+**Status update (24 September 2026):** staging acceptance PASS. T1, T2, T3, T9, T14 (cache), and T15 (ordinary Sejoli login) all passed on the real WordPress/Sejoli staging copy with both workaround mu-plugins removed, on a Preview whose tree is byte-identical to `edcf425` (`docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). OD-02 is closed for staging; production activation still needs the founder-approved steps.
 **Date:** 12 September 2026
 **Decided during:** the OD-02 staging spike, which passed end-to-end only after two temporary mu-plugins; this ADR removes the need for both.
 

@@ -2,7 +2,7 @@
 
 One-time sign-in bridge from the Superlatif WordPress site to the Superlatif Web App. It covers M1 and is recorded as ADR-072 in `docs/gates/26_ADRS.md`.
 
-> **Status: NOT INSTALLED anywhere.** This plugin has only run in the repository's own tests and in a local, throwaway WordPress Playground. Do not install it on the live `superlatif.id` until the OD-02 spike below passes on a staging copy and the founder approves production activation.
+> **Status: installed on the WordPress STAGING copy only** (version 1.1.0; OD-02 staging acceptance PASS on 24 September 2026 — `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`). It is **not** installed on the live `superlatif.id`. Do not install it there until the founder approves production activation, and configure the LiteSpeed exclusion below first.
 
 ## What it does, and what it does not do
 
