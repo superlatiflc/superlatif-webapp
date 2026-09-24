@@ -64,7 +64,7 @@ describe("start", () => {
     await expect(
       start.GET(request("https://app.example/auth/bridge/start?next=//evil.example")),
     ).rejects.toThrow(
-      /^REDIRECT:https:\/\/wp\.example\/wp-admin\/admin-post\.php\?action=superlatif_bridge_authorize&client_id=superlatif-web-production&state=/,
+      /^REDIRECT:https:\/\/wp\.example\/\?superlatif_bridge=authorize&client_id=superlatif-web-production&state=/,
     );
     const [stored] = setBridgeStateCookie.mock.calls[0] as [{ state: string; returnPath: string }];
     expect(stored.returnPath).toBe("/tryouts");

@@ -12,6 +12,8 @@
 
 export {
   BRIDGE_AUTHORIZE_ACTION,
+  BRIDGE_AUTHORIZE_QUERY_VALUE,
+  BRIDGE_AUTHORIZE_QUERY_VAR,
   BRIDGE_CLIENT_ID_PATTERN,
   BRIDGE_ENVIRONMENT_PATTERN,
   BRIDGE_HEADERS,
@@ -33,6 +35,7 @@ export {
 export {
   bridgeAuthorizeUrl,
   bridgeExchangeUrl,
+  legacyBridgeAuthorizeUrl,
   exchangeBridgeCode,
   type BridgeClientConfig,
   type BridgeExchangeDeps,
