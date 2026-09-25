@@ -99,10 +99,20 @@ export {
 
 export {
   applyPurchaseStatusEffects,
+  bindUnboundPurchaseToBuyer,
   processPurchaseLifecycleEvent,
+  type BindBuyerOutcome,
   type PurchaseLifecycleOutcome,
   type StatusEffects,
 } from "./purchase-lifecycle-service.ts";
+
+export { claimPurchasesForUser, type ClaimPurchasesOutcome } from "./purchase-claim-service.ts";
+
+export {
+  receiveCommerceEvent,
+  type CommerceReceipt,
+  type ReceiveCommerceEventInput,
+} from "./commerce-receipt-service.ts";
 
 export {
   ReconciliationCaseNotFoundError,

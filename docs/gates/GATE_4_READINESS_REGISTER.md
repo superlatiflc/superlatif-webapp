@@ -29,8 +29,8 @@
 
 | Gate | Status | Blocks | Evidence required | Owner |
 |---|---|---|---|---|
-| OD-01 Sejoli events | BLOCKED_EXTERNAL | Live commerce/access | Real payloads, stable IDs, signature bytes, timestamp/replay, retry, refund/chargeback/amount semantics | Commerce + Engineering |
-| OD-02 WordPress bridge | BLOCKED_EXTERNAL | Live SSO/linking | One-time exchange staging, audience/nonce/expiry, safe linking, logout/revocation | Identity + Engineering |
+| OD-01 Sejoli events | BLOCKED_EXTERNAL | Live commerce/access | Real payloads, stable IDs, signature bytes, timestamp/replay, retry, refund/chargeback/amount semantics. **Adapter implemented (ADR-074, 25 Sep 2026):** bridge plugin 1.2.0 signs Sejoli status events; hooks/statuses taken from Sejoli 1.14.2 source; staging capture still required to close | Commerce + Engineering |
+| OD-02 WordPress bridge | CONDITIONAL_GO | Live SSO/linking in production | **Staging evidence attached (24 Sep 2026):** `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md` — one-time exchange, audience/environment/expiry binding, single use, safe linking by WordPress `users.ID` (no email), session rotation and revocation, all on the permanent path (ADR-072/073) with no workaround. Production conditions: DNS + Vercel domain for the decided host `app.superlatif.id` (OQ-005), production client + new secret, plugin + LiteSpeed exclusion on `superlatif.id`, `FEATURE_STUDENT_LOGIN=true`, founder approval per step | Identity + Engineering |
 | OD-03 Provider decisions | OPEN | Production infrastructure/runbook commands | Benchmark/ADR for DB, queue, storage, messaging, live, hosting | Founder + Engineering |
 | OD-04 Official SKD rules | EXPECTED_OPEN | Ranked SKD production | Primary source, verified structure/threshold/category, academic sign-off, official fixture | Academic + Product |
 | OD-07 Legal/privacy | BLOCKED_REVIEW | Production data/consent/retention/incident policy | Indonesian legal review and approved policy | Founder + Legal/Privacy |

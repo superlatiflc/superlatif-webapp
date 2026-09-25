@@ -96,6 +96,8 @@ Evidence gathered from current `main` and live staging:
 
 > **Update (M1, ADR-072).** The WordPress one-time bridge now exists: the plugin (`wordpress-plugins/superlatif-app-bridge`), the protocol client (`@superlatif/integrations`), and the `/auth/bridge/*` routes. It is gated by `FEATURE_STUDENT_LOGIN`, which defaults to `false`, so production behaviour is unchanged until activation. OD-02 stays open until the staging spike in the plugin README passes.
 
+> **Update (OD-02 staging acceptance, 2026-09-24).** The staging spike has passed on the permanent path (ADR-073: front-end authorize, HMAC-signed pending cookie, uncacheable authorize response), against the real WordPress/Sejoli staging copy and with no workaround mu-plugin in place. Evidence: `docs/audit/OD02_M1_STAGING_ACCEPTANCE.md`. Production sign-in is still off — `FEATURE_STUDENT_LOGIN` is absent from Production and the plugin is not installed on `superlatif.id`.
+
 **How does a real purchase create identity, entitlement, or program access? It does not.** The commerce domain (`packages/db/src/commerce/`) is substantial and tested — purchase lifecycle, event ingestion, outbox, SKU mapping, reconciliation — but nothing calls it, and there is no HTTP surface for a provider to reach. This is OD-01.
 
 The six grants in staging carry `source_type = "purchase"` with synthetic source ids; they were seeded directly by the fixture script, not produced by a purchase.

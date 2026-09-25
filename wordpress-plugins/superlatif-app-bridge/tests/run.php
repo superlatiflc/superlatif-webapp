@@ -22,14 +22,37 @@ define( 'ARRAY_A', 'ARRAY_A' );
 
 const STAGING_KEY    = 'staging-client-hmac-key-for-plugin-tests-000';
 const PRODUCTION_KEY = 'production-client-hmac-key-for-plugin-tests-00';
+const WEBHOOK_KEY    = 'staging-webhook-hmac-key-for-plugin-tests-0';
+const BYPASS_VALUE   = 'vercelBypassForPluginTests0001';
 
 define(
 	'SUPERLATIF_BRIDGE_CLIENTS',
 	array(
 		'superlatif-web-staging'    => array(
-			'secret'       => STAGING_KEY,
-			'redirect_uri' => 'https://staging-app.test/auth/bridge/callback',
-			'environment'  => 'staging',
+			'secret'                   => STAGING_KEY,
+			'redirect_uri'             => 'https://staging-app.test/auth/bridge/callback',
+			'environment'              => 'staging',
+			'webhook_secret'           => WEBHOOK_KEY,
+			'vercel_protection_bypass' => BYPASS_VALUE,
+		),
+		'webhook-short'             => array(
+			'secret'         => STAGING_KEY,
+			'redirect_uri'   => 'https://staging-app.test/auth/bridge/callback',
+			'environment'    => 'staging',
+			'webhook_secret' => 'too-short',
+		),
+		'webhook-reused'            => array(
+			'secret'         => STAGING_KEY,
+			'redirect_uri'   => 'https://staging-app.test/auth/bridge/callback',
+			'environment'    => 'staging',
+			'webhook_secret' => STAGING_KEY,
+		),
+		'prod-with-bypass'          => array(
+			'secret'                   => PRODUCTION_KEY,
+			'redirect_uri'             => 'https://app.test/auth/bridge/callback',
+			'environment'              => 'production',
+			'webhook_secret'           => WEBHOOK_KEY,
+			'vercel_protection_bypass' => BYPASS_VALUE,
 		),
 		'superlatif-web-production' => array(
 			'secret'       => PRODUCTION_KEY,
@@ -256,12 +279,109 @@ function is_ssl(): bool {
 function wp_doing_ajax(): bool {
 	return false;
 }
+function wp_json_encode( $data, int $options = 0 ) {
+	return json_encode( $data, $options );
+}
+function add_option( string $name, $value, string $deprecated = '', $autoload = true ): bool {
+	if ( array_key_exists( $name, $GLOBALS['sab_options'] ) ) {
+		return false;
+	}
+	$GLOBALS['sab_options'][ $name ] = $value;
+	return true;
+}
+function delete_option( string $name ): bool {
+	unset( $GLOBALS['sab_options'][ $name ] );
+	return true;
+}
+function wp_generate_uuid4(): string {
+	$b    = random_bytes( 16 );
+	$b[6] = chr( ord( $b[6] ) & 0x0f | 0x40 );
+	$b[8] = chr( ord( $b[8] ) & 0x3f | 0x80 );
+	return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $b ), 4 ) );
+}
+function add_action( string $hook, $callback, int $priority = 10, int $args = 1 ): void {
+	$GLOBALS['sab_hooks'][ $hook ][] = $callback;
+}
+function has_action( string $hook, $callback ): bool {
+	return in_array( $callback, $GLOBALS['sab_hooks'][ $hook ] ?? array(), true );
+}
+
+/** In-memory stand-in for the commerce outbox table. */
+final class Sab_Commerce_Wpdb {
+	public $prefix    = 'wp_';
+	public $rows      = array();
+	public $insert_id = 0;
+	public function get_charset_collate(): string {
+		return '';
+	}
+	public function insert( string $table, array $data, array $format ) {
+		foreach ( $this->rows as $row ) {
+			if ( $row['event_id'] === $data['event_id'] ) {
+				return false;
+			}
+		}
+		$this->insert_id                 = count( $this->rows ) + 1;
+		$this->rows[ $this->insert_id ] = $data + array(
+			'id'               => $this->insert_id,
+			'last_http_status' => null,
+			'delivered_at'     => null,
+		);
+		return 1;
+	}
+	public function prepare( string $sql, ...$args ): array {
+		return array(
+			'sql'  => $sql,
+			'args' => $args,
+		);
+	}
+	public function get_results( array $prepared, string $output ): array {
+		list( $now, $limit ) = $prepared['args'];
+		$due = array_filter(
+			$this->rows,
+			static function ( $row ) use ( $now ) {
+				return 'pending' === $row['status'] && (int) $row['next_attempt_at'] <= $now;
+			}
+		);
+		ksort( $due );
+		return array_map(
+			static function ( $row ) {
+				return array(
+					'id'        => (string) $row['id'],
+					'event_id'  => $row['event_id'],
+					'client_id' => $row['client_id'],
+					'body'      => $row['body'],
+					'attempts'  => (string) $row['attempts'],
+				);
+			},
+			array_values( array_slice( $due, 0, $limit, true ) )
+		);
+	}
+	public function update( string $table, array $data, array $where, array $format, array $where_format ) {
+		if ( ! isset( $this->rows[ $where['id'] ] ) ) {
+			return 0;
+		}
+		$this->rows[ $where['id'] ] = array_merge( $this->rows[ $where['id'] ], $data );
+		return 1;
+	}
+	public function query( array $prepared ) {
+		$threshold = (int) $prepared['args'][0];
+		$before    = count( $this->rows );
+		$this->rows = array_filter(
+			$this->rows,
+			static function ( $row ) use ( $threshold ) {
+				return ! ( 'delivered' === $row['status'] && (int) $row['delivered_at'] < $threshold );
+			}
+		);
+		return $before - count( $this->rows );
+	}
+}
 
 require_once __DIR__ . '/../includes/protocol.php';
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/code-store.php';
 require_once __DIR__ . '/../includes/authorize.php';
 require_once __DIR__ . '/../includes/exchange.php';
+require_once __DIR__ . '/../includes/commerce.php';
 
 // ---------------------------------------------------------------- harness
 
@@ -712,6 +832,146 @@ check( 'resume dengan cookie tidak sah: tidak ada redirect, cookie tetap dibuang
 reset_front_end();
 list( $legacy_code, $legacy_state ) = authorize_as( 4821, 'superlatif-web-production' );
 check( 'legacy admin-post masih menerbitkan kode', superlatif_bridge_is_token( $legacy_code ) );
+
+
+// ---------------------------------------------------------------- commerce events (M2, ADR-074)
+
+$code_store      = $GLOBALS['wpdb'];
+$GLOBALS['wpdb'] = new Sab_Commerce_Wpdb();
+
+$commerce_clients = superlatif_bridge_commerce_clients();
+check( 'commerce: only the client with a valid webhook secret delivers', array( 'superlatif-web-staging' ) === array_keys( $commerce_clients ) );
+check( 'commerce: a short webhook secret disables delivery but keeps sign-in', isset( $clients['webhook-short'] ) && null === $clients['webhook-short']['webhook_secret'] );
+check( 'commerce: reusing the sign-in secret for webhooks is refused', isset( $clients['webhook-reused'] ) && null === $clients['webhook-reused']['webhook_secret'] );
+check( 'commerce: a production client may not carry a Vercel bypass', isset( $clients['prod-with-bypass'] ) && null === $clients['prod-with-bypass']['webhook_secret'] );
+
+check( 'commerce: completed is the only settled payment', 'payment_settled' === superlatif_bridge_commerce_event_type( 'completed' ) );
+check(
+	'commerce: unverified / fulfilment states stay pending',
+	array( 'order_pending', 'order_pending', 'order_pending', 'order_pending' ) === array_map( 'superlatif_bridge_commerce_event_type', array( 'on-hold', 'payment-confirm', 'in-progress', 'shipping' ) )
+);
+check( 'commerce: refunded and cancelled map to their wire types', 'refund_full' === superlatif_bridge_commerce_event_type( 'refunded' ) && 'order_cancelled' === superlatif_bridge_commerce_event_type( 'cancelled' ) );
+check( 'commerce: an unknown status is never sent', null === superlatif_bridge_commerce_event_type( 'waiting-approval' ) && null === superlatif_bridge_commerce_event_type( '' ) );
+
+$sejoli_order = array(
+	'ID'              => '9526',
+	'product_id'      => '9001',
+	'user_id'         => '5638',
+	'grand_total'     => '149000.00',
+	'status'          => 'completed',
+	'quantity'        => '1',
+	'type'            => 'regular',
+	'order_parent_id' => '0',
+	'user_email'      => 'student@example.com',
+	'user_name'       => 'Siswa Contoh',
+	'meta_data'       => array( 'coupon' => array( 'code' => 'HEMAT' ), 'affiliate' => 12 ),
+);
+$event = superlatif_bridge_commerce_build_event( $sejoli_order, 'evt-1', 1767225600 );
+check( 'commerce: a completed order builds a payment_settled event', is_array( $event ) && 'payment_settled' === $event['eventType'] );
+check(
+	'commerce: body has exactly the contract keys',
+	array( 'schemaVersion', 'eventId', 'eventType', 'occurredAt', 'order', 'customer', 'amounts', 'rawPayloadChecksum' ) === array_keys( $event )
+		&& array( 'externalOrderId', 'externalSkuId', 'externalUserId' ) === array_keys( $event['order'] )
+);
+check( 'commerce: IDs travel as decimal strings', '9526' === $event['order']['externalOrderId'] && '9001' === $event['order']['externalSkuId'] && '5638' === $event['order']['externalUserId'] );
+check( 'commerce: amount is whole rupiah', 149000 === $event['amounts']['grossMinor'] && 149000 === $event['amounts']['netSettledMinor'] && 0 === $event['amounts']['refundedMinor'] );
+check( 'commerce: occurredAt is UTC RFC 3339', '2026-01-01T00:00:00Z' === $event['occurredAt'] );
+$encoded = superlatif_bridge_commerce_encode( $event );
+check( 'commerce: no email, name, coupon, or affiliate data leaves WordPress', false === strpos( $encoded, 'example.com' ) && false === strpos( $encoded, 'Siswa' ) && false === strpos( $encoded, 'HEMAT' ) && false === strpos( $encoded, 'affiliate' ) );
+check( 'commerce: customer hashes are never populated', null === $event['customer']['emailHash'] && null === $event['customer']['phoneHash'] );
+check( 'commerce: checksum is a sha256 hex digest', 1 === preg_match( '/^[a-f0-9]{64}$/', $event['rawPayloadChecksum'] ) );
+
+$refund = superlatif_bridge_commerce_build_event( array_merge( $sejoli_order, array( 'status' => 'refunded' ) ), 'evt-2', 1767225600 );
+check( 'commerce: a refund reports the refunded amount', 'refund_full' === $refund['eventType'] && 149000 === $refund['amounts']['refundedMinor'] );
+$guest = superlatif_bridge_commerce_build_event( array_merge( $sejoli_order, array( 'user_id' => '0' ) ), 'evt-3', 1767225600 );
+check( 'commerce: a guest order carries a null buyer', null === $guest['order']['externalUserId'] );
+check( 'commerce: an order object is accepted too', is_array( superlatif_bridge_commerce_build_event( (object) $sejoli_order, 'evt-4', 1767225600 ) ) );
+check( 'commerce: no product means no event', null === superlatif_bridge_commerce_build_event( array_merge( $sejoli_order, array( 'product_id' => '' ) ), 'evt-5', 1 ) );
+check( 'commerce: an unknown status means no event', null === superlatif_bridge_commerce_build_event( array_merge( $sejoli_order, array( 'status' => 'waiting-approval' ) ), 'evt-6', 1 ) );
+check( 'commerce: garbage means no event', null === superlatif_bridge_commerce_build_event( 'not an order', 'evt-7', 1 ) );
+
+// Same bytes, same signature as the TypeScript side (shared vector).
+$cv = $vectors['commerce'];
+check(
+	'commerce vector: signing input and signature match the app',
+	superlatif_bridge_sign( $vectors['hmacKey'], superlatif_bridge_commerce_signing_input( $cv['keyId'], $cv['timestamp'], $cv['eventId'], $cv['body'] ) ) === $cv['signature']
+);
+
+$staging_client = $commerce_clients['superlatif-web-staging'];
+$headers        = superlatif_bridge_commerce_headers( 'superlatif-web-staging', $staging_client, 'evt-1', $encoded, 1767225600 );
+check(
+	'commerce: delivery headers carry event ID, timestamp, key ID and a verifiable signature',
+	'evt-1' === $headers['X-Provider-Event-ID'] && '1767225600' === $headers['X-Superlatif-Timestamp'] && 'superlatif-web-staging' === $headers['X-Superlatif-Key-ID']
+		&& superlatif_bridge_signature_matches( WEBHOOK_KEY, superlatif_bridge_commerce_signing_input( 'superlatif-web-staging', '1767225600', 'evt-1', $encoded ), $headers['X-Superlatif-Signature'] )
+);
+check( 'commerce: the sign-in secret does NOT verify a webhook signature', ! superlatif_bridge_signature_matches( STAGING_KEY, superlatif_bridge_commerce_signing_input( 'superlatif-web-staging', '1767225600', 'evt-1', $encoded ), $headers['X-Superlatif-Signature'] ) );
+check( 'commerce: the staging bypass header is sent only when configured', BYPASS_VALUE === $headers['x-vercel-protection-bypass'] );
+check( 'commerce: webhook URL is the app origin plus the fixed path', 'https://staging-app.test/api/v1/integrations/commerce/sejoli_bridge/events' === superlatif_bridge_commerce_url( $staging_client ) );
+
+check( 'retry: 2xx is delivered', 'delivered' === superlatif_bridge_commerce_next( 202, 1 )['state'] );
+check( 'retry: 400/413/415/422 are dead at once', 'dead' === superlatif_bridge_commerce_next( 400, 1 )['state'] && 'dead' === superlatif_bridge_commerce_next( 415, 1 )['state'] );
+check( 'retry: a transport failure retries after 60 s', array( 'state' => 'pending', 'delay' => 60 ) === superlatif_bridge_commerce_next( 0, 1 ) );
+check( 'retry: 503 / 404 / 401 keep retrying with backoff', 300 === superlatif_bridge_commerce_next( 503, 2 )['delay'] && 'pending' === superlatif_bridge_commerce_next( 404, 3 )['state'] && 'pending' === superlatif_bridge_commerce_next( 401, 4 )['state'] );
+check( 'retry: gives up after the last backoff step', 'pending' === superlatif_bridge_commerce_next( 503, 7 )['state'] && 'dead' === superlatif_bridge_commerce_next( 503, 8 )['state'] );
+
+// Hook -> outbox -> delivery, with the transport faked.
+$GLOBALS['sab_hooks'] = array();
+superlatif_bridge_commerce_on_order_status( $sejoli_order );
+$outbox = array_values( $GLOBALS['wpdb']->rows );
+check( 'hook: one event queued, for the webhook client only', 1 === count( $outbox ) && 'superlatif-web-staging' === $outbox[0]['client_id'] && 'pending' === $outbox[0]['status'] );
+check( 'hook: a delivery is scheduled for the end of the request', has_action( 'shutdown', 'superlatif_bridge_commerce_deliver_now' ) );
+$queued_id   = $outbox[0]['event_id'];
+$queued_body = $outbox[0]['body'];
+check( 'hook: the event ID is a UUID fixed at enqueue time', 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $queued_id ) && false !== strpos( $queued_body, $queued_id ) );
+
+$sent   = array();
+$answer = 0;
+$fake   = static function ( string $url, array $headers, string $body ) use ( &$sent, &$answer ): int {
+	$sent[] = array( $url, $headers, $body );
+	return $answer;
+};
+$t0 = time();
+$summary = superlatif_bridge_commerce_deliver_due( $t0, $fake );
+$row     = array_values( $GLOBALS['wpdb']->rows )[0];
+check( 'delivery: a transport failure leaves the event pending for 60 s', array( 'delivered' => 0, 'pending' => 1, 'dead' => 0 ) === $summary && 1 === (int) $row['attempts'] && $t0 + 60 === (int) $row['next_attempt_at'] );
+superlatif_bridge_commerce_deliver_due( $t0 + 30, $fake );
+check( 'delivery: nothing is re-sent before it is due', 1 === count( $sent ) );
+$answer  = 202;
+$summary = superlatif_bridge_commerce_deliver_due( $t0 + 61, $fake );
+$row     = array_values( $GLOBALS['wpdb']->rows )[0];
+check( 'delivery: the retry is delivered and recorded', 1 === $summary['delivered'] && 'delivered' === $row['status'] && 2 === (int) $row['attempts'] && 202 === (int) $row['last_http_status'] );
+check( 'delivery: the retry reuses the SAME event ID and the SAME body bytes', $sent[0][1]['X-Provider-Event-ID'] === $queued_id && $sent[1][1]['X-Provider-Event-ID'] === $queued_id && $sent[0][2] === $queued_body && $sent[1][2] === $queued_body );
+check( 'delivery: each attempt is signed with its own timestamp', $sent[0][1]['X-Superlatif-Timestamp'] !== $sent[1][1]['X-Superlatif-Timestamp'] );
+check(
+	'delivery: every attempt verifies with the webhook secret',
+	superlatif_bridge_signature_matches( WEBHOOK_KEY, superlatif_bridge_commerce_signing_input( 'superlatif-web-staging', $sent[1][1]['X-Superlatif-Timestamp'], $queued_id, $queued_body ), $sent[1][1]['X-Superlatif-Signature'] )
+);
+superlatif_bridge_commerce_deliver_due( $t0 + 10000, $fake );
+check( 'delivery: a delivered event is never sent again', 2 === count( $sent ) );
+
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'status' => 'refunded' ) ) );
+$answer = 400;
+superlatif_bridge_commerce_deliver_due( $t0 + 10001, $fake );
+$dead = array_values( array_filter( $GLOBALS['wpdb']->rows, static function ( $r ) { return 'refund_full' === $r['event_type']; } ) )[0];
+check( 'delivery: a 400 is dead at once and kept for a human', 'dead' === $dead['status'] && 400 === (int) $dead['last_http_status'] );
+
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'status' => 'cancelled' ) ) );
+add_option( 'superlatif_bridge_commerce_lock', (string) ( $t0 + 20000 ), '', false );
+$before  = count( $sent );
+superlatif_bridge_commerce_deliver_due( $t0 + 20001, $fake );
+check( 'delivery: a concurrent run holding the lock is not duplicated', count( $sent ) === $before );
+superlatif_bridge_commerce_deliver_due( $t0 + 20200, $fake );
+check( 'delivery: a stale lock (> 120 s) is taken over', count( $sent ) === $before + 1 && ! isset( $GLOBALS['sab_options']['superlatif_bridge_commerce_lock'] ) );
+
+$GLOBALS['sab_hooks'] = array();
+superlatif_bridge_commerce_register_hooks();
+check(
+	'hooks: every mapped Sejoli status hook, and nothing else from Sejoli, is listened to',
+	array_map( static function ( $s ) { return 'sejoli/order/set-status/' . $s; }, array_keys( SUPERLATIF_BRIDGE_SEJOLI_EVENT_TYPES ) )
+		=== array_values( array_filter( array_keys( $GLOBALS['sab_hooks'] ), static function ( $h ) { return 0 === strpos( $h, 'sejoli/' ); } ) )
+);
+
+$GLOBALS['wpdb'] = $code_store;
 
 // ---------------------------------------------------------------- housekeeping
 

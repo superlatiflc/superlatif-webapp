@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Superlatif App Bridge
- * Description:       One-time sign-in bridge from WordPress to the Superlatif Web App. Issues single-use codes for logged-in users and redeems them server-to-server. No settings screen; configured in wp-config.php.
- * Version:           1.1.0
+ * Description:       Bridge from WordPress to the Superlatif Web App: one-time sign-in codes, and signed delivery of Sejoli order status events. No settings screen; configured in wp-config.php.
+ * Version:           1.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Superlatif
@@ -15,21 +15,33 @@
  * What this plugin does NOT do: it never exposes a password, a WordPress
  * auth cookie, or an application password; never sends email, phone, or
  * any other profile field to the app; never computes access or entitlement;
- * and never touches Sejoli data.
+ * and never writes Sejoli data. Since 1.2.0 (ADR-074) it READS the order a
+ * Sejoli status hook passes it and forwards a minimized, signed event (order,
+ * product, and WordPress user IDs, status, amount) to clients that configure
+ * a webhook secret.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SUPERLATIF_BRIDGE_VERSION', '1.1.0' );
+define( 'SUPERLATIF_BRIDGE_VERSION', '1.2.0' );
 
 require_once __DIR__ . '/includes/protocol.php';
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/code-store.php';
 require_once __DIR__ . '/includes/authorize.php';
 require_once __DIR__ . '/includes/exchange.php';
+require_once __DIR__ . '/includes/commerce.php';
 
 register_activation_hook( __FILE__, 'superlatif_bridge_install_table' );
+register_activation_hook( __FILE__, 'superlatif_bridge_commerce_install_table' );
+register_deactivation_hook( __FILE__, 'superlatif_bridge_commerce_deactivate' );
 add_action( 'plugins_loaded', 'superlatif_bridge_maybe_upgrade' );
+add_action( 'plugins_loaded', 'superlatif_bridge_commerce_maybe_upgrade' );
+
+// Commerce events (ADR-074): Sejoli status hooks -> outbox -> signed delivery.
+add_filter( 'cron_schedules', 'superlatif_bridge_commerce_cron_schedules' );
+superlatif_bridge_commerce_register_hooks();
+add_action( 'init', 'superlatif_bridge_commerce_ensure_cron' );
 
 add_filter( 'allowed_redirect_hosts', 'superlatif_bridge_allowed_redirect_hosts' );
 
