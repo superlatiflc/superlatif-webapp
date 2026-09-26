@@ -76,9 +76,23 @@ async function userIdByEmail(email: string): Promise<string> {
   return user.userId;
 }
 
-async function ensureBatch(adminId: string, reviewerId: string): Promise<string> {
+/**
+ * Batch approval/publication are academic-admin actions (assertBatchPermission),
+ * exactly as seed-staging.ts drives them. Resumes an interrupted earlier run
+ * from whatever status the batch reached, never recreating it.
+ */
+async function finishBatch(adminId: string, batchId: string, status: string): Promise<void> {
+  if (status === "draft") await submitExamBatchForReview(db, adminId, batchId);
+  if (status === "draft" || status === "in_review") await approveExamBatch(db, adminId, batchId);
+  if (status !== "published") await publishExamBatch(db, adminId, batchId);
+}
+
+async function ensureBatch(adminId: string): Promise<string> {
   const existing = await findExamBatchByCode(db, BATCH_CODE);
-  if (existing) return existing.id;
+  if (existing) {
+    if (existing.status !== "published") await finishBatch(adminId, existing.id, existing.status);
+    return existing.id;
+  }
   const template = await findExamBatchByCode(db, "TO-STG-PAST");
   if (!template) throw new Error("TO-STG-PAST not found - run seed-staging.ts first");
 
@@ -94,9 +108,7 @@ async function ensureBatch(adminId: string, reviewerId: string): Promise<string>
     { windowType: "final_result_release", startsAt: at(30 * DAY + DAY / 12) },
     { windowType: "explanation_release", startsAt: at(30 * DAY + DAY / 8) },
   ]);
-  await submitExamBatchForReview(db, adminId, batch.id);
-  await approveExamBatch(db, reviewerId, batch.id);
-  await publishExamBatch(db, adminId, batch.id);
+  await finishBatch(adminId, batch.id, "draft");
   return batch.id;
 }
 
@@ -140,8 +152,7 @@ function policyConfig(code: string) {
 
 async function main() {
   const adminId = await userIdByEmail("stg-admin@superlatif.id");
-  const reviewerId = await userIdByEmail("stg-reviewer@superlatif.id");
-  await ensureBatch(adminId, reviewerId);
+  await ensureBatch(adminId);
 
   const mapped = await resolveOfferForSku(db, "sejoli_bridge", site, productId!, now);
   if (!mapped) {
