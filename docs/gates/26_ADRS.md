@@ -1699,6 +1699,7 @@ Minimum founder confirmations:
 ## ADR-074 — M2: Sejoli purchases reach the app as signed webhook events from the bridge plugin, buyers resolve to the WordPress sign-in identity, and a purchase made before the first sign-in is claimed automatically
 
 **Status:** Implemented on `feat/m2-purchase-entitlement`. Staging end-to-end pending; OD-01 stays open until the staging capture confirms the Sejoli hooks and statuses below. Not active in production: `FEATURE_COMMERCE_SYNC` defaults off there and `PRODUCTION_WRITES_ENABLED=false` still freezes commerce writes.
+**Status update (29 September 2026):** staging acceptance PASS (`docs/audit/OD01_M2_STAGING_ACCEPTANCE.md`). The capture confirmed every assumption at the end of this ADR: the `set-status` hooks fire on checkout and on admin status changes with `ID`, `product_id`, `user_id`, `grand_total` (IDR); `refund` sets `refunded`; retries keep the event ID; a replayed event is acknowledged as a duplicate with no state change. OD-01 is closed for staging; production activation still needs the founder-approved steps in that record.
 **Date:** 25 September 2026
 **Builds on:** COM-001…COM-006 (catalogue, ingestion, purchase lifecycle, reconciliation - reused unchanged), ADR-072/073 (sign-in bridge), OD-02 outcome (a).
 
