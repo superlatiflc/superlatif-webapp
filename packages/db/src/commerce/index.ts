@@ -124,3 +124,19 @@ export {
   type RepairOutcome,
   type RepairReconciliationCaseInput,
 } from "./reconciliation-repair-service.ts";
+
+export {
+  CATALOGUE_ACTIONS,
+  CATALOGUE_TARGET_TYPES,
+  CataloguePlanNotApplicableError,
+  applyCatalogue,
+  parseCatalogueSpec,
+  planCatalogue,
+  type AppliedProduct,
+  type CataloguePlan,
+  type CatalogueSpec,
+  type ParseCatalogueResult,
+  type ProductPlan,
+} from "./catalogue-loader.ts";
+
+export { buildReconciliationReport, type ReconciliationReport } from "./reconciliation-report.ts";

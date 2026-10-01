@@ -23,6 +23,12 @@
  * it. Each attempt is signed afresh (new timestamp), so a retry is never
  * rejected as stale.
  *
+ * FAILURE REASONS (1.2.1). Every failed attempt records WHY in `last_error`
+ * and the PHP error log: the `WP_Error` code and message for a transport
+ * failure (DNS, TLS, timeout, blocked outbound HTTP), or `http_<status>` plus
+ * the app's fixed error code (e.g. `http_401:SIGNATURE_INVALID`). Never a
+ * header, the body, a secret, or the bypass value.
+ *
  * Nothing here computes access: the app decides what an event means.
  *
  * @package SuperlatifAppBridge
@@ -33,7 +39,7 @@ defined( 'ABSPATH' ) || exit;
 const SUPERLATIF_BRIDGE_COMMERCE_PROVIDER = 'sejoli_bridge';
 const SUPERLATIF_BRIDGE_COMMERCE_PATH     = '/api/v1/integrations/commerce/sejoli_bridge/events';
 const SUPERLATIF_BRIDGE_COMMERCE_CRON     = 'superlatif_bridge_commerce_deliver';
-const SUPERLATIF_BRIDGE_COMMERCE_DB_VERSION = '1';
+const SUPERLATIF_BRIDGE_COMMERCE_DB_VERSION = '2';
 
 /**
  * Sejoli status -> wire event type, version 1.
@@ -268,6 +274,7 @@ function superlatif_bridge_commerce_install_table(): void {
 			attempts int(10) unsigned NOT NULL DEFAULT 0,
 			next_attempt_at bigint(20) unsigned NOT NULL,
 			last_http_status smallint(5) unsigned DEFAULT NULL,
+			last_error varchar(191) DEFAULT NULL,
 			created_at bigint(20) unsigned NOT NULL,
 			delivered_at bigint(20) unsigned DEFAULT NULL,
 			PRIMARY KEY  (id),
@@ -314,15 +321,16 @@ function superlatif_bridge_commerce_due( int $now, int $limit ): array {
 	return is_array( $rows ) ? $rows : array();
 }
 
-function superlatif_bridge_commerce_record_attempt( int $id, int $attempts, int $status, array $next, int $now ): void {
+function superlatif_bridge_commerce_record_attempt( int $id, int $attempts, int $status, array $next, int $now, ?string $error = null ): void {
 	global $wpdb;
 	$data = array(
 		'status'           => $next['state'],
 		'attempts'         => $attempts,
 		'next_attempt_at'  => $now + $next['delay'],
 		'last_http_status' => $status,
+		'last_error'       => $error,
 	);
-	$format = array( '%s', '%d', '%d', '%d' );
+	$format = array( '%s', '%d', '%d', '%d', '%s' );
 	if ( 'delivered' === $next['state'] ) {
 		$data['delivered_at'] = $now;
 		$format[]             = '%d';
@@ -340,23 +348,84 @@ function superlatif_bridge_commerce_purge( int $now ): void {
 // ------------------------------------------------------------------ delivery
 
 /**
- * Sends one signed delivery. Returns the HTTP status, or 0 on a transport
- * failure. No redirects are followed: the webhook URL is fixed by config.
+ * A safe, bounded diagnostic string: printable ASCII only, no query strings,
+ * at most 190 characters. Inputs are WordPress/cURL error text and the app's
+ * fixed error codes - never request headers or bodies.
  */
-function superlatif_bridge_commerce_post( string $url, array $headers, string $body ): int {
-	$response = wp_remote_post(
-		$url,
-		array(
-			'timeout'     => 10,
-			'redirection' => 0,
-			'headers'     => $headers,
-			'body'        => $body,
+function superlatif_bridge_commerce_clean_error( string $text ): string {
+	$text = preg_replace( '/\?[^\s]*/', '?..', $text );
+	$text = preg_replace( '/[^\x20-\x7E]/', ' ', (string) $text );
+	$text = trim( preg_replace( '/\s+/', ' ', (string) $text ) );
+	return substr( $text, 0, 190 );
+}
+
+/**
+ * Turns one transport outcome into `[status, error]`. Pure, so the mapping is
+ * testable without HTTP: `$response` is what wp_remote_post() returned.
+ *
+ * @param mixed $response WP_Error or the response array.
+ * @return array{status: int, error: ?string}
+ */
+function superlatif_bridge_commerce_outcome( $response ): array {
+	if ( is_wp_error( $response ) ) {
+		return array(
+			'status' => 0,
+			'error'  => superlatif_bridge_commerce_clean_error( 'transport:' . $response->get_error_code() . ': ' . $response->get_error_message() ),
+		);
+	}
+	$status = (int) wp_remote_retrieve_response_code( $response );
+	if ( $status >= 200 && $status < 300 ) {
+		return array(
+			'status' => $status,
+			'error'  => null,
+		);
+	}
+	// The app's error envelope carries a fixed upper-case code; anything else
+	// (an HTML page from a proxy or Vercel SSO) is reported as the status only.
+	$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+	$code    = is_array( $decoded ) && isset( $decoded['error']['code'] ) && is_string( $decoded['error']['code'] ) && 1 === preg_match( '/^[A-Z0-9_]{1,64}$/', $decoded['error']['code'] )
+		? ':' . $decoded['error']['code']
+		: '';
+	return array(
+		'status' => $status,
+		'error'  => 'http_' . $status . $code,
+	);
+}
+
+/**
+ * The error-log line for one failed attempt: event ID, attempt number,
+ * reason, and what happens next. No order data, header, or body.
+ *
+ * @param array{state: string, delay: int} $next
+ */
+function superlatif_bridge_commerce_failure_line( string $event_id, int $attempts, string $reason, array $next ): string {
+	$when = 'dead' === $next['state'] ? 'gave up' : 'next try in ' . $next['delay'] . 's';
+	return 'superlatif-app-bridge: commerce event ' . $event_id . ' attempt ' . $attempts . ' failed (' . $reason . '); ' . $when;
+}
+
+/**
+ * Sends one signed delivery. No redirects are followed: the webhook URL is
+ * fixed by config.
+ *
+ * @return array{status: int, error: ?string} HTTP status (0 on a transport failure) and the failure reason.
+ */
+function superlatif_bridge_commerce_send( string $url, array $headers, string $body ): array {
+	return superlatif_bridge_commerce_outcome(
+		wp_remote_post(
+			$url,
+			array(
+				'timeout'     => 10,
+				'redirection' => 0,
+				'headers'     => $headers,
+				'body'        => $body,
+			)
 		)
 	);
-	if ( is_wp_error( $response ) ) {
-		return 0;
-	}
-	return (int) wp_remote_retrieve_response_code( $response );
+}
+
+/** 1.2.0 signature, kept for callers that only need the status. */
+function superlatif_bridge_commerce_post( string $url, array $headers, string $body ): int {
+	return superlatif_bridge_commerce_send( $url, $headers, $body )['status'];
 }
 
 /**
@@ -364,11 +433,11 @@ function superlatif_bridge_commerce_post( string $url, array $headers, string $b
  * delivery of the same event ID is harmless (the app deduplicates), and the
  * lock only avoids wasted requests.
  *
- * @param callable|null $post fn(string $url, array $headers, string $body): int - injectable for tests.
+ * @param callable|null $post fn(string $url, array $headers, string $body): array{status: int, error: ?string}|int - injectable for tests.
  * @return array{delivered: int, pending: int, dead: int}
  */
 function superlatif_bridge_commerce_deliver_due( int $now, ?callable $post = null ): array {
-	$post    = $post ?? 'superlatif_bridge_commerce_post';
+	$post    = $post ?? 'superlatif_bridge_commerce_send';
 	$summary = array(
 		'delivered' => 0,
 		'pending'   => 0,
@@ -387,16 +456,30 @@ function superlatif_bridge_commerce_deliver_due( int $now, ?callable $post = nul
 			$attempts = (int) $row['attempts'] + 1;
 			$client   = $clients[ $row['client_id'] ] ?? null;
 			$url      = null === $client ? null : superlatif_bridge_commerce_url( $client );
-			// A client removed from config: nothing can deliver it until it is back.
-			$status = null === $url
-				? 0
-				: (int) call_user_func( $post, $url, superlatif_bridge_commerce_headers( $row['client_id'], $client, $row['event_id'], $row['body'], $now ), $row['body'] );
-			$next = superlatif_bridge_commerce_next( $status, $attempts );
-			superlatif_bridge_commerce_record_attempt( (int) $row['id'], $attempts, $status, $next, $now );
+			if ( null === $url ) {
+				// A client removed from config: nothing can deliver it until it is back.
+				$result = array(
+					'status' => 0,
+					'error'  => 'client_not_configured',
+				);
+			} else {
+				$raw    = call_user_func( $post, $url, superlatif_bridge_commerce_headers( $row['client_id'], $client, $row['event_id'], $row['body'], $now ), $row['body'] );
+				$result = is_array( $raw )
+					? array(
+						'status' => (int) ( $raw['status'] ?? 0 ),
+						'error'  => isset( $raw['error'] ) ? superlatif_bridge_commerce_clean_error( (string) $raw['error'] ) : null,
+					)
+					: array(
+						'status' => (int) $raw,
+						'error'  => ( (int) $raw >= 200 && (int) $raw < 300 ) ? null : 'http_' . (int) $raw,
+					);
+			}
+			$status = $result['status'];
+			$next   = superlatif_bridge_commerce_next( $status, $attempts );
+			superlatif_bridge_commerce_record_attempt( (int) $row['id'], $attempts, $status, $next, $now, 'delivered' === $next['state'] ? null : $result['error'] );
 			++$summary[ $next['state'] ];
-			if ( 'dead' === $next['state'] ) {
-				// Order and event IDs are not personal data; no body, no header.
-				error_log( 'superlatif-app-bridge: commerce event ' . $row['event_id'] . ' undeliverable after ' . $attempts . ' attempts (last HTTP ' . $status . ')' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			if ( 'delivered' !== $next['state'] ) {
+				error_log( superlatif_bridge_commerce_failure_line( $row['event_id'], $attempts, $result['error'] ?? 'http_' . $status, $next ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			}
 		}
 		superlatif_bridge_commerce_purge( $now );

@@ -90,10 +90,15 @@ final class Sab_Die extends Exception {
 
 class WP_Error {
 	private $code;
+	private $message;
 	private $data;
-	public function __construct( string $code, string $message, array $data ) {
-		$this->code = $code;
-		$this->data = $data;
+	public function __construct( string $code, string $message, array $data = array() ) {
+		$this->code    = $code;
+		$this->message = $message;
+		$this->data    = $data;
+	}
+	public function get_error_message(): string {
+		return $this->message;
 	}
 	public function get_error_code(): string {
 		return $this->code;
@@ -298,6 +303,15 @@ function wp_generate_uuid4(): string {
 	$b[6] = chr( ord( $b[6] ) & 0x0f | 0x40 );
 	$b[8] = chr( ord( $b[8] ) & 0x3f | 0x80 );
 	return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $b ), 4 ) );
+}
+function is_wp_error( $thing ): bool {
+	return $thing instanceof WP_Error;
+}
+function wp_remote_retrieve_response_code( $response ) {
+	return $response['response']['code'] ?? '';
+}
+function wp_remote_retrieve_body( $response ): string {
+	return (string) ( $response['body'] ?? '' );
 }
 function add_action( string $hook, $callback, int $priority = 10, int $args = 1 ): void {
 	$GLOBALS['sab_hooks'][ $hook ][] = $callback;
@@ -970,6 +984,58 @@ check(
 	array_map( static function ( $s ) { return 'sejoli/order/set-status/' . $s; }, array_keys( SUPERLATIF_BRIDGE_SEJOLI_EVENT_TYPES ) )
 		=== array_values( array_filter( array_keys( $GLOBALS['sab_hooks'] ), static function ( $h ) { return 0 === strpos( $h, 'sejoli/' ); } ) )
 );
+
+$GLOBALS['wpdb'] = $code_store;
+
+
+// ---------------------------------------------------------------- failure reasons (1.2.1)
+
+$GLOBALS['wpdb'] = new Sab_Commerce_Wpdb();
+$GLOBALS['sab_options'] = array();
+$http = static function ( int $code, string $body = '' ): array {
+	return array( 'response' => array( 'code' => $code ), 'body' => $body );
+};
+check( 'outcome: 2xx has no error', array( 'status' => 202, 'error' => null ) === superlatif_bridge_commerce_outcome( $http( 202, '{"accepted":true}' ) ) );
+check(
+	'outcome: a transport WP_Error keeps its code and message',
+	array( 'status' => 0, 'error' => 'transport:http_request_failed: User has blocked requests through HTTP.' ) === superlatif_bridge_commerce_outcome( new WP_Error( 'http_request_failed', 'User has blocked requests through HTTP.' ) )
+);
+check( 'outcome: the app error code is appended to the status', 'http_401:SIGNATURE_INVALID' === superlatif_bridge_commerce_outcome( $http( 401, '{"error":{"code":"SIGNATURE_INVALID","message":"x","requestId":"r"}}' ) )['error'] );
+check( 'outcome: an HTML error page (proxy, Vercel SSO) reports the status only', 'http_401' === superlatif_bridge_commerce_outcome( $http( 401, '<html>Authentication Required</html>' ) )['error'] );
+check( 'outcome: an unexpected code shape is not echoed', 'http_400' === superlatif_bridge_commerce_outcome( $http( 400, '{"error":{"code":"<script>"}}' ) )['error'] );
+check(
+	'clean_error: drops query strings, non-ASCII, and caps length',
+	'cURL error 6: Could not resolve host: app.test?..' === superlatif_bridge_commerce_clean_error( "cURL error 6: Could not resolve host: app.test?token=abc\n" )
+		&& 190 === strlen( superlatif_bridge_commerce_clean_error( str_repeat( 'x', 500 ) ) )
+		&& 'a b' === superlatif_bridge_commerce_clean_error( "a\xE2\x80\xA6b" )
+);
+
+superlatif_bridge_commerce_on_order_status( $sejoli_order );
+$t1 = time() + 50000;
+superlatif_bridge_commerce_deliver_due( $t1, static function () {
+	return array( 'status' => 0, 'error' => 'transport:http_request_failed: cURL error 28: Operation timed out' );
+} );
+$row = array_values( $GLOBALS['wpdb']->rows )[0];
+check( 'delivery: a transport failure stores its reason in last_error', 'transport:http_request_failed: cURL error 28: Operation timed out' === $row['last_error'] && 0 === (int) $row['last_http_status'] );
+$line = superlatif_bridge_commerce_failure_line( $row['event_id'], 1, $row['last_error'], array( 'state' => 'pending', 'delay' => 60 ) );
+check( 'delivery: the failure log line names event, attempt, reason and next step - never the body or a secret', 'superlatif-app-bridge: commerce event ' . $row['event_id'] . ' attempt 1 failed (transport:http_request_failed: cURL error 28: Operation timed out); next try in 60s' === $line && false === strpos( $line, WEBHOOK_KEY ) );
+check( 'delivery: the last attempt says it gave up', false !== strpos( superlatif_bridge_commerce_failure_line( 'e', 8, 'http_503', array( 'state' => 'dead', 'delay' => 0 ) ), 'gave up' ) );
+superlatif_bridge_commerce_deliver_due( $t1 + 61, static function () {
+	return array( 'status' => 401, 'error' => 'http_401:SIGNATURE_INVALID' );
+} );
+$row = array_values( $GLOBALS['wpdb']->rows )[0];
+check( 'delivery: an app refusal stores status and app code', 401 === (int) $row['last_http_status'] && 'http_401:SIGNATURE_INVALID' === $row['last_error'] && 'pending' === $row['status'] );
+superlatif_bridge_commerce_deliver_due( $t1 + 400, static function () {
+	return array( 'status' => 202, 'error' => null );
+} );
+$row = array_values( $GLOBALS['wpdb']->rows )[0];
+check( 'delivery: success clears last_error', 'delivered' === $row['status'] && null === $row['last_error'] );
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'status' => 'refunded' ) ) );
+superlatif_bridge_commerce_deliver_due( $t1 + 500, static function () {
+	return 0;
+} );
+$row = array_values( $GLOBALS['wpdb']->rows )[1];
+check( 'delivery: a 1.2.0-style int transport still records a reason', 'http_0' === $row['last_error'] );
 
 $GLOBALS['wpdb'] = $code_store;
 

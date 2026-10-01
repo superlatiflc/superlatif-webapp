@@ -97,7 +97,7 @@ Rules the plugin enforces (an invalid entry is ignored and logged by client ID o
 
 ---
 
-## Commerce events (1.2.0, M2, ADR-074)
+## Commerce events (1.2.0+, M2, ADR-074)
 
 Off unless a client has a `webhook_secret`. When it has one, every Sejoli status change of an order (`sejoli/order/set-status/{status}`) is queued in the table `{prefix}superlatif_bridge_events` and delivered, signed, to `<app origin of redirect_uri>/api/v1/integrations/commerce/sejoli_bridge/events`. Delivery is tried at the end of the request, then by WP-Cron every 5 minutes with backoff (about 22 hours), always with the same event ID and body.
 
@@ -121,7 +121,8 @@ An invalid value disables commerce delivery for that client only (sign-in keeps 
 
 Operations:
 
-- Delivery log: `SELECT event_id, order_id, event_type, status, attempts, last_http_status FROM {prefix}superlatif_bridge_events ORDER BY id DESC LIMIT 20;` (`pending` / `delivered` / `dead`).
+- Delivery log: `SELECT event_id, order_id, event_type, status, attempts, last_http_status, last_error FROM {prefix}superlatif_bridge_events ORDER BY id DESC LIMIT 20;` (`pending` / `delivered` / `dead`).
+- **Why a delivery failed (1.2.1):** `last_error` and the PHP error log record the reason for every failed attempt - `transport:<WP_Error code>: <message>` (DNS, TLS, timeout, outbound HTTP blocked by `WP_HTTP_BLOCK_EXTERNAL`), or `http_<status>[:<app error code>]` such as `http_401:SIGNATURE_INVALID` or `http_503:WRITES_DISABLED`. Never a header, body, or secret. `last_error` is cleared on success.
 - Re-send a `dead` event after fixing the cause: `UPDATE {prefix}superlatif_bridge_events SET status = 'pending', attempts = 0, next_attempt_at = UNIX_TIMESTAMP() WHERE event_id = '<id>';` - the same event ID is safe to resend, the app deduplicates it.
 - WP-Cron only runs when the site gets traffic. On a quiet staging site, run `wp cron event run superlatif_bridge_commerce_deliver` to trigger a retry right away.
 

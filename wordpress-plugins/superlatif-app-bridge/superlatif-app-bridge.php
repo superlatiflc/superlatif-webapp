@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Superlatif App Bridge
  * Description:       Bridge from WordPress to the Superlatif Web App: one-time sign-in codes, and signed delivery of Sejoli order status events. No settings screen; configured in wp-config.php.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Superlatif
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SUPERLATIF_BRIDGE_VERSION', '1.2.0' );
+define( 'SUPERLATIF_BRIDGE_VERSION', '1.2.1' );
 
 require_once __DIR__ . '/includes/protocol.php';
 require_once __DIR__ . '/includes/config.php';
