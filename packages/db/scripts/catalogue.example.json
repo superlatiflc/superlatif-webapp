@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "provider": "sejoli_bridge",
+  "site": "superlatif.id",
+  "products": [
+    {
+      "sejoliProductId": "999999",
+      "code": "EXAMPLE_PILOT_PRODUCT",
+      "name": "EXAMPLE - replace with the approved pilot product",
+      "type": "single_batch",
+      "termsVersion": "terms-YYYY-MM",
+      "offer": { "code": "EXAMPLE_PILOT_OFFER", "title": "EXAMPLE pilot offer", "amountMinor": 0 },
+      "validity": { "mode": "duration_after_purchase", "durationDays": 90 },
+      "components": [
+        {
+          "componentCode": "batch",
+          "targetType": "exam_batch",
+          "targetCode": "TO-EXAMPLE",
+          "actions": ["start_attempt", "view_result"]
+        }
+      ]
+    }
+  ]
+}

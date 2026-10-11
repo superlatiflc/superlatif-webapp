@@ -1,5 +1,5 @@
 {
-  "description": "Cross-language HMAC vectors for the superlatif-app-bridge protocol (ADR-072). Asserted by packages/integrations (TypeScript) AND tests/run.php (PHP). Synthetic key; not a credential.",
+  "description": "Cross-language HMAC vectors for the superlatif-app-bridge protocol (ADR-072, ADR-074). Asserted by packages/integrations (TypeScript) AND tests/run.php (PHP). Synthetic key; not a credential.",
   "hmacKey": "vector-key-for-protocol-tests-only-0000000",
   "code": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
   "state": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
@@ -17,5 +17,12 @@
       "environment": "staging"
     },
     "signature": "75e494e0a9006c65654d3133bfe0982e3c525aa235e6d9c1310d7da724ddb4d0"
+  },
+  "commerce": {
+    "keyId": "superlatif-web-staging",
+    "timestamp": "1767225600",
+    "eventId": "0b6f6a52-4b3a-4d25-9a51-6a4e0b1e2c3d",
+    "body": "{\"schemaVersion\":1,\"eventId\":\"0b6f6a52-4b3a-4d25-9a51-6a4e0b1e2c3d\",\"eventType\":\"payment_settled\",\"occurredAt\":\"2026-01-01T00:00:00Z\",\"order\":{\"externalOrderId\":\"9526\",\"externalSkuId\":\"9001\",\"externalUserId\":\"4821\"},\"customer\":{\"emailHash\":null,\"phoneHash\":null},\"amounts\":{\"currency\":\"IDR\",\"grossMinor\":149000,\"discountMinor\":0,\"netSettledMinor\":149000,\"refundedMinor\":0},\"rawPayloadChecksum\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+    "signature": "f54c2ba0eb22e62a827b6fa4570c9ea0d9e9baae8d525558bce967289c94fe3a"
   }
 }

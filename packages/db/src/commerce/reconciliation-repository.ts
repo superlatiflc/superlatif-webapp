@@ -27,7 +27,9 @@ export type ReconciliationCaseType =
   | "policy_validity_unresolvable"
   | "chargeback_review"
   /** dok 05 §14 / dok 25 §12 "Paid order tanpa grant" - raised by ENT-003's detectPurchaseGrantDrift, resolved the same way every other case here is: a human reviews and calls resolveReconciliationCase, never an automatic grant. */
-  | "paid_purchase_no_grant";
+  | "paid_purchase_no_grant"
+  /** M2 (ADR-074): a later event for an order names a different buyer than the one the purchase is bound to. Never re-bound automatically. */
+  | "identity_mismatch";
 
 /** dok 25 §13's own queue-state vocabulary, transcribed verbatim. */
 export type ReconciliationCaseStatus =
@@ -168,5 +170,31 @@ export async function resolveReconciliationCase(
     .where(eq(reconciliationCases.id, caseId))
     .returning(RECONCILIATION_CASE_COLUMNS);
   if (!row) throw new Error("resolveReconciliationCase: update returned no row");
+  return row;
+}
+
+/**
+ * M2 (ADR-074): terminal resolution with NO human actor - `resolvedByUserId`
+ * stays null, so the audit trail never attributes a system decision to a
+ * person. Used only where the blocker a case recorded has been removed by
+ * verified evidence (a bridge-authenticated buyer claiming their own
+ * purchase). Same idempotency as resolveReconciliationCase.
+ */
+export async function resolveReconciliationCaseBySystem(
+  db: Queryable<Schema>,
+  caseId: string,
+  resolutionReason: string,
+  resolvedAt: Date,
+): Promise<ReconciliationCaseRow> {
+  const existing = await findReconciliationCaseById(db, caseId);
+  if (!existing) throw new Error(`resolveReconciliationCaseBySystem: case ${caseId} not found`);
+  if (isTerminalReconciliationStatus(existing.status)) return existing;
+
+  const [row] = await db
+    .update(reconciliationCases)
+    .set({ status: "resolved", resolvedByUserId: null, resolutionReason, resolvedAt })
+    .where(eq(reconciliationCases.id, caseId))
+    .returning(RECONCILIATION_CASE_COLUMNS);
+  if (!row) throw new Error("resolveReconciliationCaseBySystem: update returned no row");
   return row;
 }

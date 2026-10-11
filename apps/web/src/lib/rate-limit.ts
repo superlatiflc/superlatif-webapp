@@ -211,6 +211,20 @@ export async function enforceBridgeSubjectRateLimit(subject: string, now = new D
   );
 }
 
+/**
+ * Commerce webhook deliveries that failed signature verification, per network
+ * source (M2, ADR-074). Throws RateLimitedError once the source has sent too
+ * many; the route then answers 401 WITHOUT recording the delivery.
+ */
+export async function enforceUnverifiedCommerceWebhookRateLimit(now = new Date()): Promise<void> {
+  if (!isEnabled()) return;
+  await enforce(
+    "commerce_webhook_unverified",
+    buildBucketKey("commerce_webhook_unverified", await clientFingerprint("commerce_webhook_unverified")),
+    now,
+  );
+}
+
 /** User-keyed: a learner's own reload/resume budget, independent of network. */
 export async function enforceAttemptStartRateLimit(userId: string, now = new Date()): Promise<void> {
   if (!isEnabled()) return;

@@ -3,6 +3,7 @@ import { program as programService } from "@superlatif/db";
 import { EmptyState, NextActionCard, ProgramCard } from "@superlatif/ui";
 import { getDb, getEffectiveAccessCache } from "../../lib/db.ts";
 import { requireUserIdOrRedirect } from "../../lib/session.ts";
+import { claimPurchasesOnLanding } from "../../lib/commerce/claim.ts";
 
 // dok 07 §4 "Struktur Beranda" / dok 09 §8.1. Server Component: the view
 // model is built once, server-side, from @superlatif/db/program's
@@ -31,6 +32,10 @@ export const metadata: Metadata = {
 
 export default async function HomePage() {
   const userId = await requireUserIdOrRedirect();
+  // M2 (ADR-074): a Sejoli purchase made before this student's first sign-in
+  // becomes theirs here, before the view model reads their access. Never
+  // throws; a no-op when commerce sync is off or production writes are frozen.
+  await claimPurchasesOnLanding(userId);
 
   let model: Awaited<ReturnType<typeof programService.buildHomeViewModel>>;
   try {

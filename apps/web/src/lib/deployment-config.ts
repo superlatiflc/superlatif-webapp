@@ -120,6 +120,7 @@ export function deploymentConfigViolations(env: Env): string[] {
   }
 
   violations.push(...studentLoginConfigViolations(env));
+  violations.push(...commerceSyncConfigViolations(env));
 
   return sanitizeEnvViolations(violations, env);
 }
@@ -179,6 +180,30 @@ export function studentLoginConfigViolations(env: Env): string[] {
   if (env["FEATURE_STUDENT_LOGIN"] !== "true") return [];
   return bridgeClientConfigProblems(env).map(
     (problem) => `FEATURE_STUDENT_LOGIN=true requires a complete WordPress bridge configuration: ${problem}`,
+  );
+}
+
+/** Value-free problems with the commerce webhook configuration (ADR-074); empty when complete. */
+export function commerceWebhookConfigProblems(env: Env): string[] {
+  const problems = bridgeClientConfigProblems(env).map((problem) => `bridge: ${problem}`);
+  const secret = env["SEJOLI_WEBHOOK_SIGNING_SECRET"];
+  if (!secret || secret.length < 32) {
+    problems.push("SEJOLI_WEBHOOK_SIGNING_SECRET is missing or shorter than 32 characters");
+  } else if (secret === env["WP_BRIDGE_CLIENT_SECRET"]) {
+    problems.push("SEJOLI_WEBHOOK_SIGNING_SECRET must not reuse WP_BRIDGE_CLIENT_SECRET");
+  }
+  return problems;
+}
+
+/**
+ * ADR-074: an explicit FEATURE_COMMERCE_SYNC=true with an incomplete webhook
+ * configuration would open an endpoint that can only refuse every delivery.
+ * Refuse the build instead. Keyed on the EXPLICIT value, like sign-in.
+ */
+export function commerceSyncConfigViolations(env: Env): string[] {
+  if (env["FEATURE_COMMERCE_SYNC"] !== "true") return [];
+  return commerceWebhookConfigProblems(env).map(
+    (problem) => `FEATURE_COMMERCE_SYNC=true requires a complete commerce webhook configuration: ${problem}`,
   );
 }
 

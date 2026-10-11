@@ -34,6 +34,7 @@ import {
   type ValidityConfig,
 } from "@superlatif/domain/access";
 import { resolvePurchaseTransition, type PurchaseState } from "@superlatif/domain/commerce";
+import { buyerIdentityProviderFor } from "@superlatif/domain/identity";
 import type { Schema } from "../db-types.ts";
 import {
   issueGrantAndInvalidate,
@@ -53,12 +54,21 @@ import {
   createPurchase,
   createPurchaseEvent,
   findPurchaseByExternalOrder,
+  findLatestNormalizedEventIdForPurchase,
   findPurchaseEventByNormalizedEventId,
+  listBuyerSubjectsForPurchase,
+  lockPurchaseById,
   updatePurchaseStatus,
   type PurchaseRow,
   type PurchaseTransitionOutcomeLabel,
 } from "./purchase-repository.ts";
-import { createReconciliationCase, type ReconciliationCaseType } from "./reconciliation-repository.ts";
+import {
+  createReconciliationCase,
+  listReconciliationCasesForPurchase,
+  resolveReconciliationCaseBySystem,
+  isTerminalReconciliationStatus,
+  type ReconciliationCaseType,
+} from "./reconciliation-repository.ts";
 import { resolveOfferForSku } from "./sku-mapping-repository.ts";
 
 export type PurchaseLifecycleOutcome =
@@ -289,7 +299,7 @@ export async function processPurchaseLifecycleEvent(
     if (!existing) {
       const identity = await findExternalIdentity(
         tx,
-        normalizedEvent.provider,
+        buyerIdentityProviderFor(normalizedEvent.provider),
         normalizedEvent.externalUserId,
       );
       const mapping = await resolveOfferForSku(
@@ -350,6 +360,57 @@ export async function processPurchaseLifecycleEvent(
         grantsIssued: effects.grantsIssued,
         grantsRevoked: effects.grantsRevoked,
       };
+    }
+
+    // Buyer consistency (M2, ADR-074). The buyer an event names must be the
+    // buyer the purchase belongs to: an order can never move to another user.
+    const incomingIdentity = await findExternalIdentity(
+      tx,
+      buyerIdentityProviderFor(normalizedEvent.provider),
+      normalizedEvent.externalUserId,
+    );
+    const priorSubjects = await listBuyerSubjectsForPurchase(tx, existing.id);
+    const subjectChanged = priorSubjects.some((subject) => subject !== normalizedEvent.externalUserId);
+    const boundUserChanged = existing.userId !== null && incomingIdentity?.userId !== existing.userId;
+    if (subjectChanged || boundUserChanged) {
+      await createPurchaseEvent(tx, {
+        purchaseId: existing.id,
+        normalizedEventId,
+        status: incomingStatus,
+        occurredAt: normalizedEvent.occurredAt,
+        transitionOutcome: "ignored_identity_mismatch",
+      });
+      // No subject value in the evidence: the case links the normalized
+      // event, which already holds it under the commerce tables' access rules.
+      await raiseReconciliation(tx, "identity_mismatch", existing, normalizedEventId, {
+        incomingStatus,
+        incomingBuyerResolved: incomingIdentity !== null,
+      });
+      return {
+        kind: "processed",
+        purchaseId: existing.id,
+        transitionOutcome: "ignored_identity_mismatch",
+        grantsIssued: [],
+        grantsRevoked: [],
+      };
+    }
+    let current: PurchaseRow = existing;
+    if (existing.userId === null && incomingIdentity !== null) {
+      // The buyer has signed in since the order was first seen: bind first,
+      // so this event's transition applies to a purchase that has its user.
+      const bound = await bindUnboundPurchaseToBuyer(
+        tx,
+        cache,
+        existing.id,
+        normalizedEvent.externalUserId,
+        incomingIdentity.userId,
+        now,
+      );
+      // Whoever bound it - this call, or a concurrent claim that held the lock
+      // first - the row is locked by this transaction now: read what it holds.
+      if (bound.kind === "bound" || bound.kind === "already_bound") {
+        current = (await lockPurchaseById(tx, existing.id)) ?? existing;
+      }
     }
 
     const transition = resolvePurchaseTransition({
@@ -420,7 +481,7 @@ export async function processPurchaseLifecycleEvent(
     const effects = await applyPurchaseStatusEffects(
       tx,
       cache,
-      existing,
+      current,
       transition.newStatus,
       now,
       normalizedEventId,
@@ -433,4 +494,67 @@ export async function processPurchaseLifecycleEvent(
       grantsRevoked: effects.grantsRevoked,
     };
   });
+}
+
+export type BindBuyerOutcome =
+  | { readonly kind: "bound"; readonly purchaseId: string; readonly grantsIssued: readonly string[] }
+  /** Already has a buyer (possibly bound by a concurrent claim a moment ago) - nothing touched. */
+  | { readonly kind: "already_bound"; readonly purchaseId: string }
+  /** The purchase's events name a different subject, or more than one - left for a human (the open case stays open). */
+  | { readonly kind: "buyer_mismatch"; readonly purchaseId: string }
+  | { readonly kind: "not_found"; readonly purchaseId: string };
+
+/**
+ * Binds a purchase that was recorded before its buyer could be resolved
+ * ("unresolved_identity") to the app user who now proves to be that buyer
+ * (M2, ADR-074). Must run inside a transaction: the purchase row is locked,
+ * so concurrent callers (two tabs landing on /home, a webhook racing a
+ * sign-in) bind it at most once.
+ *
+ * `subject` must be the buyer subject every event for this purchase named -
+ * a single consistent value - or nothing happens. The caller vouches that
+ * `userId` owns `subject` under the buyer identity namespace (it looked the
+ * link up itself); this function never creates or changes identities.
+ *
+ * If the purchase is currently `paid` and mapped to an offer, its grants are
+ * issued through the SAME applyPurchaseStatusEffects a live event uses, so
+ * sourceKey idempotency still guarantees one grant per component. Any other
+ * current status grants nothing. Open "unresolved_identity" cases for the
+ * purchase are then resolved by the system, with no human actor recorded.
+ */
+export async function bindUnboundPurchaseToBuyer(
+  tx: Parameters<typeof issueGrantAndInvalidate>[0],
+  cache: EffectiveAccessCache,
+  purchaseId: string,
+  subject: string,
+  userId: string,
+  now: Date,
+): Promise<BindBuyerOutcome> {
+  const purchase = await lockPurchaseById(tx, purchaseId);
+  if (!purchase) return { kind: "not_found", purchaseId };
+  if (purchase.userId !== null) return { kind: "already_bound", purchaseId };
+
+  const subjects = await listBuyerSubjectsForPurchase(tx, purchaseId);
+  if (subjects.some((recorded) => recorded !== subject)) return { kind: "buyer_mismatch", purchaseId };
+
+  await updatePurchaseStatus(tx, purchaseId, {
+    status: purchase.status as PurchaseState,
+    lastEventOccurredAt: purchase.lastEventOccurredAt,
+    userId,
+  });
+  const bound: PurchaseRow = { ...purchase, userId };
+
+  let grantsIssued: readonly string[] = [];
+  if (purchase.status === "paid" && purchase.offerId !== null) {
+    const reference = (await findLatestNormalizedEventIdForPurchase(tx, purchaseId)) ?? "";
+    const effects = await applyPurchaseStatusEffects(tx, cache, bound, "paid", now, reference);
+    grantsIssued = effects.grantsIssued;
+  }
+
+  for (const kase of await listReconciliationCasesForPurchase(tx, purchaseId)) {
+    if (kase.caseType === "unresolved_identity" && !isTerminalReconciliationStatus(kase.status)) {
+      await resolveReconciliationCaseBySystem(tx, kase.id, "buyer_identity_linked_by_bridge_sign_in", now);
+    }
+  }
+  return { kind: "bound", purchaseId, grantsIssued };
 }

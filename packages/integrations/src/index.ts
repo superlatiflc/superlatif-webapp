@@ -41,3 +41,23 @@ export {
   type BridgeExchangeDeps,
   type BridgeExchangeResult,
 } from "./wordpress-bridge/client.ts";
+
+// M2 (ADR-074): commerce webhook wire protocol shared with the bridge plugin.
+export {
+  COMMERCE_WEBHOOK_HEADERS,
+  COMMERCE_WEBHOOK_MAX_BODY_BYTES,
+  COMMERCE_WEBHOOK_PROVIDERS,
+  COMMERCE_WEBHOOK_SIGNING_PREFIX,
+  WIRE_COMMERCE_EVENT_TYPES,
+  commerceWebhookSignatureMatches,
+  commerceWebhookSigningInput,
+  isCommerceWebhookTimestampFresh,
+  parseWireCommerceEvent,
+  sha256Hex,
+  signCommerceWebhook,
+  type CommerceWebhookProvider,
+  type WireCommerceEvent,
+  type WireCommerceEventType,
+} from "./commerce-webhook/protocol.ts";
+
+export { WIRE_ENVELOPE_TYPE, toCommerceEventEnvelope } from "./commerce-webhook/envelope.ts";

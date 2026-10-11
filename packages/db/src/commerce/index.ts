@@ -99,10 +99,20 @@ export {
 
 export {
   applyPurchaseStatusEffects,
+  bindUnboundPurchaseToBuyer,
   processPurchaseLifecycleEvent,
+  type BindBuyerOutcome,
   type PurchaseLifecycleOutcome,
   type StatusEffects,
 } from "./purchase-lifecycle-service.ts";
+
+export { claimPurchasesForUser, type ClaimPurchasesOutcome } from "./purchase-claim-service.ts";
+
+export {
+  receiveCommerceEvent,
+  type CommerceReceipt,
+  type ReceiveCommerceEventInput,
+} from "./commerce-receipt-service.ts";
 
 export {
   ReconciliationCaseNotFoundError,
@@ -114,3 +124,19 @@ export {
   type RepairOutcome,
   type RepairReconciliationCaseInput,
 } from "./reconciliation-repair-service.ts";
+
+export {
+  CATALOGUE_ACTIONS,
+  CATALOGUE_TARGET_TYPES,
+  CataloguePlanNotApplicableError,
+  applyCatalogue,
+  parseCatalogueSpec,
+  planCatalogue,
+  type AppliedProduct,
+  type CataloguePlan,
+  type CatalogueSpec,
+  type ParseCatalogueResult,
+  type ProductPlan,
+} from "./catalogue-loader.ts";
+
+export { buildReconciliationReport, type ReconciliationReport } from "./reconciliation-report.ts";

@@ -16,4 +16,10 @@ export {
   type IdentityLinkDecision,
 } from "./identity-linking.ts";
 
-export { WORDPRESS_LOGIN_PROVIDER, WORDPRESS_SUBJECT_PATTERN } from "./providers.ts";
+export {
+  COMMERCE_BUYER_IDENTITY_PROVIDERS,
+  WORDPRESS_LOGIN_PROVIDER,
+  WORDPRESS_SUBJECT_PATTERN,
+  buyerIdentityProviderFor,
+  commerceProvidersForIdentityProvider,
+} from "./providers.ts";

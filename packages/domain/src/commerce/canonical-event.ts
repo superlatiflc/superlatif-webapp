@@ -63,6 +63,33 @@ export const SEJOLI_BRIDGE_STATUS_MAP_V1: ProviderStatusMap = {
   },
 };
 
+/**
+ * The wire contract's `eventType` vocabulary (contracts/openapi.yaml
+ * `CanonicalCommerceEvent.eventType`), mapped to purchase states (M2,
+ * ADR-074). The provider adapter (the WordPress bridge plugin) turns its own
+ * raw statuses into one of these names; this map is the app's half, versioned
+ * like any other ProviderStatusMap and looked up by the same normalizer.
+ *
+ * `chargeback_resolved` is deliberately ABSENT: resolving a chargeback has no
+ * canonical purchase state (it may mean reinstated or refunded) and dok 22
+ * §18 requires human review, so it normalizes as `unknown_status` and lands
+ * in quarantine instead of guessing.
+ */
+export const WIRE_EVENT_TYPE_STATUS_MAP_V1: ProviderStatusMap = {
+  provider: "wire_event_type",
+  version: 1,
+  mapping: {
+    order_pending: "pending",
+    payment_settled: "paid",
+    payment_failed: "failed",
+    order_expired: "expired",
+    order_cancelled: "cancelled",
+    refund_full: "refunded_full",
+    refund_partial: "refunded_partial",
+    chargeback_opened: "chargeback",
+  },
+};
+
 /** Only event TYPES this task knows how to normalize - dok 22 §17's own example. An unrecognized type is "unknown event" (quarantine), not a guess. */
 export const SUPPORTED_EVENT_TYPES: readonly string[] = ["purchase.status_changed"];
 

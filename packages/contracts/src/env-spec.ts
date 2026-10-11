@@ -211,8 +211,10 @@ export const ENV_SPEC = {
     type: "string",
     requirement: "optional-no-default",
     secret: true,
-    minLength: 16,
-    description: "Verifies Sejoli webhook signature bytes.",
+    minLength: 32,
+    description:
+      "Dedicated HMAC key the bridge plugin signs commerce webhook deliveries with (ADR-074). One per environment; " +
+      "never the sign-in client secret.",
   },
   SEJOLI_CHECKOUT_BASE_URL: {
     type: "url",
