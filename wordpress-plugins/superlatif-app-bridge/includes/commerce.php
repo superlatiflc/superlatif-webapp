@@ -23,6 +23,11 @@
  * it. Each attempt is signed afresh (new timestamp), so a retry is never
  * rejected as stale.
  *
+ * PRODUCT ALLOWLIST (1.2.2). A client with `webhook_products` receives only
+ * orders for those Sejoli product IDs; every other order creates no outbox row
+ * and no request. The filter runs when an event is queued: changing the list
+ * never re-sends or drops events already queued, and nothing is backfilled.
+ *
  * FAILURE REASONS (1.2.1). Every failed attempt records WHY in `last_error`
  * and the PHP error log: the `WP_Error` code and message for a transport
  * failure (DNS, TLS, timeout, blocked outbound HTTP), or `http_<status>` plus
@@ -234,6 +239,18 @@ function superlatif_bridge_commerce_next( int $status, int $attempts_made ): arr
 		'state' => 'pending',
 		'delay' => SUPERLATIF_BRIDGE_COMMERCE_BACKOFF[ max( 0, $attempts_made - 1 ) ],
 	);
+}
+
+/**
+ * Whether a client receives orders for this Sejoli product (1.2.2): its
+ * allowlist names the product, or it has no allowlist (non-production only -
+ * a production client without one never gets this far).
+ *
+ * @param array{webhook_products?: ?array<int, string>} $client
+ */
+function superlatif_bridge_commerce_accepts_product( array $client, string $product_id ): bool {
+	$allowed = $client['webhook_products'] ?? null;
+	return null === $allowed || in_array( $product_id, $allowed, true );
 }
 
 /**
@@ -504,10 +521,13 @@ function superlatif_bridge_commerce_on_order_status( $order ): void {
 	}
 	$now    = time();
 	$queued = false;
-	foreach ( array_keys( $clients ) as $client_id ) {
+	foreach ( $clients as $client_id => $client ) {
 		$event = superlatif_bridge_commerce_build_event( $order, wp_generate_uuid4(), $now );
 		if ( null === $event ) {
 			return; // Same order for every client: if it is unusable for one, it is for all.
+		}
+		if ( ! superlatif_bridge_commerce_accepts_product( $client, $event['order']['externalSkuId'] ) ) {
+			continue; // Not on this client's allowlist: no outbox row, no request.
 		}
 		$queued = superlatif_bridge_commerce_enqueue( $client_id, $event, $now ) > 0 || $queued;
 	}

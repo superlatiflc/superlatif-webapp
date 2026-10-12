@@ -22,10 +22,11 @@ All of these must be true. Each one is a separate founder decision.
 | G1 | M1 + M2 PRs merged to `main`, CI green, Production verified unchanged after the merge | PR links, post-merge read-only check |
 | G2 | Supabase Production on a plan **without auto-pause**, PITR enabled, one restore rehearsed (M6) | Dashboard screenshot + restore note |
 | G3 | OD-07 legal/privacy review approved for student and purchase data | Signed note |
+| G4a | Practice-only production gate for SKD decided and implemented (`docs/runbooks/PILOT_PREPARATION.md` B1) | ADR + merged change |
 | G4 | Pilot catalogue approved: Sejoli product ID(s), access granted, validity. The **targets (program / exam batch) exist and are published in Production** with approved content | Catalogue JSON reviewed; `load-production-catalogue.ts` dry-run shows `create`, not `blocked` |
-| G5 | Decision on **non-pilot product events** (see §5). Without a filter, every Sejoli order on the live site is forwarded once M2 is on | Founder decision recorded |
+| G5 | Pilot product IDs final and entered in `webhook_products` (plugin 1.2.2, §5) | IDs copied from Sejoli admin, not retyped |
 | G6 | A support owner for reconciliation cases, and a daily report routine (§4) | Name + schedule |
-| G7 | Plugin ZIP **1.2.1** built from the merged commit, SHA-256 recorded; plugin 1.1.0 ZIP kept for rollback | ZIP + checksum |
+| G7 | Plugin ZIP **1.2.2** built from the merged commit, SHA-256 recorded; plugin 1.1.0 ZIP kept for rollback | ZIP + checksum |
 | G8 | Backups taken on the day: WordPress database + files, Supabase Production | Backup IDs |
 | G9 | `PRODUCTION_WRITES_ENABLED=true` approved as a **launch decision** (it also opens exam writes: start/save/submit) | Signed go/no-go (dok 30 §13) |
 
@@ -49,9 +50,9 @@ All of these must be true. Each one is a separate founder decision.
 - **Checkpoint:** `https://app.superlatif.id` serves the same `dpl_…` as the `vercel.app` alias, TLS valid, `/auth/bridge/start` still 404.
 - **Rollback:** remove the domain from Vercel and the DNS record.
 
-### S2 — Plugin 1.2.1 on live WordPress, inert
-- **Operator:** upload ZIP 1.2.1 (Plugins → Add New → Upload) and activate. Do **not** add any client yet.
-- **Checkpoint:** version 1.2.1 active, tables `…_superlatif_bridge_codes` and `…_superlatif_bridge_events` exist and are empty, an ordinary Sejoli login still lands on the member area, no checkout regression.
+### S2 — Plugin 1.2.2 on live WordPress, inert
+- **Operator:** upload ZIP 1.2.2 (Plugins → Add New → Upload) and activate. Do **not** add any client yet.
+- **Checkpoint:** version 1.2.2 active, tables `…_superlatif_bridge_codes` and `…_superlatif_bridge_events` exist and are empty, an ordinary Sejoli login still lands on the member area, no checkout regression.
 - **Rollback:** deactivate, then delete (uninstall drops only its own tables).
 
 ### S3 — Sign-in client (M1), no webhook yet
@@ -91,8 +92,8 @@ All of these must be true. Each one is a separate founder decision.
 - **Rollback:** `FEATURE_COMMERCE_SYNC=false` and redeploy (404).
 
 ### S6 — Webhook secret on live WordPress
-- **Operator:** add `webhook_secret` (same value as S5) to `superlatif-web-production`.
-- **Checkpoint:** the next status change of any order creates an outbox row that is retried with `last_error = http_503:WRITES_DISABLED`. The plugin keeps it pending and nothing is lost.
+- **Operator:** add `webhook_secret` (same value as S5) **and `webhook_products`** (the pilot product IDs) to `superlatif-web-production`. Without `webhook_products` the production client delivers nothing; the error log says so.
+- **Checkpoint:** the next status change of a **pilot product** order creates an outbox row (other products create none) that is retried with `last_error = http_503:WRITES_DISABLED`. The plugin keeps it pending and nothing is lost.
 - **Rollback:** remove `webhook_secret`. Delivery stops; already-queued rows keep retrying until they give up (about 22 h) and stay in the table.
 
 ### S7 — Open writes (launch decision G9)
@@ -135,15 +136,11 @@ All of these must be true. Each one is a separate founder decision.
 - **Re-send a `dead` event** after fixing its cause: use the `wp eval` replay (§6.2). It sends the stored bytes and event ID, and the app deduplicates.
 - **Logs:** Vercel runtime logs are short-lived (about 1 h via CLI). Run the report daily rather than relying on logs; set up a log drain (M5) before scaling past the pilot.
 
-## 5. Decision needed: events from non-pilot products (G5)
+## 5. Events from non-pilot products (G5) — decided: plugin allowlist
 
-Plugin 1.2.x forwards status changes of **every** Sejoli product. With only the pilot product mapped, each order of any other product becomes a purchase in the app with an `unknown_sku` case and no access. That is safe (no access is granted by default) but noisy: the report will show `ATTENTION` all the time. Options:
+Founder decision (12 Oct 2026): use the **product allowlist** in plugin **1.2.2**. The production client lists its pilot product IDs in `webhook_products`. Orders for every other product create no outbox row and no request. A production client **without** `webhook_products` delivers nothing (fail closed), so going live can never forward the whole shop by accident.
 
-1. **Accept and filter in the report:** treat `unknown_sku` for known non-pilot product IDs as expected. No code change.
-2. **Add a per-client product allowlist to the plugin** (`webhook_products`), so only pilot products are sent. This is a small plugin change with tests, and it needs a new plugin version before S6.
-3. **Map every live product.** Needs the full M3 catalogue and content first.
-
-Orders placed **before** activation are not sent (only status changes after S6 are). Existing customers of the pilot product need a separate migration decision (dok 25).
+The list is applied when an event is queued: orders placed while a product was not listed are never sent later. Add the product ID **before** the product's sale is opened. Orders placed **before** activation are not sent either; existing customers of a product need a separate migration decision (dok 25).
 
 ## 6. Command reference (no secrets printed)
 
