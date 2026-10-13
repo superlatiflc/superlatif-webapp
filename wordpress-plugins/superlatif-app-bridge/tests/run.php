@@ -47,6 +47,40 @@ define(
 			'environment'    => 'staging',
 			'webhook_secret' => STAGING_KEY,
 		),
+		'prod-pilot'                => array(
+			'secret'           => PRODUCTION_KEY,
+			'redirect_uri'     => 'https://app.test/auth/bridge/callback',
+			'environment'      => 'production',
+			'webhook_secret'   => WEBHOOK_KEY,
+			'webhook_products' => array( 5715, '445' ),
+		),
+		'prod-no-list'              => array(
+			'secret'         => PRODUCTION_KEY,
+			'redirect_uri'   => 'https://app.test/auth/bridge/callback',
+			'environment'    => 'production',
+			'webhook_secret' => WEBHOOK_KEY,
+		),
+		'stg-empty-list'            => array(
+			'secret'           => STAGING_KEY,
+			'redirect_uri'     => 'https://staging-app.test/auth/bridge/callback',
+			'environment'      => 'staging',
+			'webhook_secret'   => WEBHOOK_KEY,
+			'webhook_products' => array(),
+		),
+		'stg-bad-list'              => array(
+			'secret'           => STAGING_KEY,
+			'redirect_uri'     => 'https://staging-app.test/auth/bridge/callback',
+			'environment'      => 'staging',
+			'webhook_secret'   => WEBHOOK_KEY,
+			'webhook_products' => array( '5715', 'abc' ),
+		),
+		'stg-dup-list'              => array(
+			'secret'           => STAGING_KEY,
+			'redirect_uri'     => 'https://staging-app.test/auth/bridge/callback',
+			'environment'      => 'staging',
+			'webhook_secret'   => WEBHOOK_KEY,
+			'webhook_products' => array( 445, '445' ),
+		),
 		'prod-with-bypass'          => array(
 			'secret'                   => PRODUCTION_KEY,
 			'redirect_uri'             => 'https://app.test/auth/bridge/callback',
@@ -854,7 +888,7 @@ $code_store      = $GLOBALS['wpdb'];
 $GLOBALS['wpdb'] = new Sab_Commerce_Wpdb();
 
 $commerce_clients = superlatif_bridge_commerce_clients();
-check( 'commerce: only the client with a valid webhook secret delivers', array( 'superlatif-web-staging' ) === array_keys( $commerce_clients ) );
+check( 'commerce: only clients with a valid webhook configuration deliver', array( 'superlatif-web-staging', 'prod-pilot' ) === array_keys( $commerce_clients ) );
 check( 'commerce: a short webhook secret disables delivery but keeps sign-in', isset( $clients['webhook-short'] ) && null === $clients['webhook-short']['webhook_secret'] );
 check( 'commerce: reusing the sign-in secret for webhooks is refused', isset( $clients['webhook-reused'] ) && null === $clients['webhook-reused']['webhook_secret'] );
 check( 'commerce: a production client may not carry a Vercel bypass', isset( $clients['prod-with-bypass'] ) && null === $clients['prod-with-bypass']['webhook_secret'] );
@@ -1036,6 +1070,68 @@ superlatif_bridge_commerce_deliver_due( $t1 + 500, static function () {
 } );
 $row = array_values( $GLOBALS['wpdb']->rows )[1];
 check( 'delivery: a 1.2.0-style int transport still records a reason', 'http_0' === $row['last_error'] );
+
+$GLOBALS['wpdb'] = $code_store;
+
+
+// ---------------------------------------------------------------- product allowlist (1.2.2)
+
+check( 'allowlist: a production client keeps its list, normalized to decimal strings', array( '5715', '445' ) === $clients['prod-pilot']['webhook_products'] );
+check( 'allowlist: a non-production client without a list receives every product', null === $clients['superlatif-web-staging']['webhook_products'] );
+check( 'allowlist: a production client WITHOUT a list delivers nothing, but sign-in still works', isset( $clients['prod-no-list'] ) && null === $clients['prod-no-list']['webhook_secret'] && ! isset( $commerce_clients['prod-no-list'] ) );
+check( 'allowlist: an empty list disables delivery', isset( $clients['stg-empty-list'] ) && null === $clients['stg-empty-list']['webhook_secret'] );
+check( 'allowlist: a non-numeric entry disables delivery', isset( $clients['stg-bad-list'] ) && null === $clients['stg-bad-list']['webhook_secret'] );
+check( 'allowlist: a duplicate entry disables delivery', isset( $clients['stg-dup-list'] ) && null === $clients['stg-dup-list']['webhook_secret'] );
+check(
+	'allowlist: parser rules',
+	null === superlatif_bridge_parse_webhook_products( null, 'staging' )
+		&& 'webhook_products is required for a production client' === superlatif_bridge_parse_webhook_products( null, 'production' )
+		&& array( '1', '22' ) === superlatif_bridge_parse_webhook_products( array( 1, '22' ), 'production' )
+		&& is_string( superlatif_bridge_parse_webhook_products( array( 0 ), 'staging' ) )
+		&& is_string( superlatif_bridge_parse_webhook_products( array( '022' ), 'staging' ) )
+		&& is_string( superlatif_bridge_parse_webhook_products( '445', 'staging' ) )
+);
+check(
+	'allowlist: accepts_product',
+	superlatif_bridge_commerce_accepts_product( array( 'webhook_products' => array( '445' ) ), '445' )
+		&& ! superlatif_bridge_commerce_accepts_product( array( 'webhook_products' => array( '445' ) ), '4450' )
+		&& superlatif_bridge_commerce_accepts_product( array( 'webhook_products' => null ), '9999' )
+);
+
+$GLOBALS['wpdb']        = new Sab_Commerce_Wpdb();
+$GLOBALS['sab_options'] = array();
+$by_client              = static function (): array {
+	$out = array();
+	foreach ( $GLOBALS['wpdb']->rows as $row ) {
+		$out[ $row['client_id'] ][] = $row['order_id'] . ':' . $row['event_type'];
+	}
+	return $out;
+};
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'ID' => '7001', 'product_id' => '9001' ) ) );
+check( 'allowlist: a non-listed product reaches only the no-list staging client', array( 'superlatif-web-staging' => array( '7001:payment_settled' ) ) === $by_client() );
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'ID' => '7002', 'product_id' => '5715' ) ) );
+superlatif_bridge_commerce_on_order_status( array_merge( $sejoli_order, array( 'ID' => '7003', 'product_id' => '445', 'status' => 'on-hold' ) ) );
+check(
+	'allowlist: listed products reach the production client too',
+	array(
+		'superlatif-web-staging' => array( '7001:payment_settled', '7002:payment_settled', '7003:order_pending' ),
+		'prod-pilot'             => array( '7002:payment_settled', '7003:order_pending' ),
+	) === $by_client()
+);
+$sent = array();
+superlatif_bridge_commerce_deliver_due( time() + 90000, static function ( string $url, array $headers, string $body ) use ( &$sent ): array {
+	$sent[] = $headers['X-Superlatif-Key-ID'] . '@' . parse_url( $url, PHP_URL_HOST ) . ':' . json_decode( $body, true )['order']['externalSkuId'];
+	return array( 'status' => 202, 'error' => null );
+} );
+sort( $sent );
+check(
+	'allowlist: only queued events are sent - nothing for the excluded product to production',
+	array( 'prod-pilot@app.test:445', 'prod-pilot@app.test:5715', 'superlatif-web-staging@staging-app.test:445', 'superlatif-web-staging@staging-app.test:5715', 'superlatif-web-staging@staging-app.test:9001' ) === $sent
+);
+check(
+	'allowlist: each client signs with its own key ID and gets its own event ID',
+	2 === count( array_unique( array_map( static function ( $r ) { return $r['event_id']; }, array_filter( $GLOBALS['wpdb']->rows, static function ( $r ) { return '7002' === (string) $r['order_id']; } ) ) ) )
+);
 
 $GLOBALS['wpdb'] = $code_store;
 

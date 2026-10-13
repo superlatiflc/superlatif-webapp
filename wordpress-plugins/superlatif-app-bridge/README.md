@@ -97,7 +97,7 @@ Rules the plugin enforces (an invalid entry is ignored and logged by client ID o
 
 ---
 
-## Commerce events (1.2.0+, M2, ADR-074)
+## Commerce events (1.2.0+, M2, ADR-074; allowlist since 1.2.2)
 
 Off unless a client has a `webhook_secret`. When it has one, every Sejoli status change of an order (`sejoli/order/set-status/{status}`) is queued in the table `{prefix}superlatif_bridge_events` and delivered, signed, to `<app origin of redirect_uri>/api/v1/integrations/commerce/sejoli_bridge/events`. Delivery is tried at the end of the request, then by WP-Cron every 5 minutes with backoff (about 22 hours), always with the same event ID and body.
 
@@ -115,9 +115,12 @@ Client entry additions in `wp-config.php`:
 ```php
 'webhook_secret'           => getenv( 'SUPERLATIF_BRIDGE_STAGING_WEBHOOK_SECRET' ), // >= 32 chars, NOT the sign-in secret; the same value as the app's SEJOLI_WEBHOOK_SIGNING_SECRET
 'vercel_protection_bypass' => getenv( 'SUPERLATIF_BRIDGE_STAGING_VERCEL_BYPASS' ),  // optional, staging only (Vercel "Protection Bypass for Automation")
+'webhook_products'         => array( /* pilot product ID(s) copied from Sejoli admin */ ), // 1.2.2: REQUIRED for a production client
 ```
 
-An invalid value disables commerce delivery for that client only (sign-in keeps working) and logs the client ID and the reason, never the value. A production client may not carry a Vercel bypass.
+**Product allowlist (1.2.2).** With `webhook_products`, only orders for those Sejoli product IDs are queued; every other order creates no outbox row and no request. A non-production client without the key receives every product (1.2.1 behaviour). A **production** client without it delivers nothing. The list applies when an event is queued: it never re-sends or drops queued events, and orders placed while a product was not listed are not backfilled.
+
+An invalid value disables commerce delivery for that client only (sign-in keeps working) and logs the client ID and the reason, never the value. Invalid means a short or reused `webhook_secret`, a malformed bypass, a bypass on a production client, or an empty, non-numeric, or duplicated `webhook_products`. A production client may not carry a Vercel bypass.
 
 Operations:
 

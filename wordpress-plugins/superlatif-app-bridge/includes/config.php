@@ -15,6 +15,10 @@
  *           'webhook_secret' => getenv( 'SUPERLATIF_BRIDGE_STAGING_WEBHOOK_SECRET' ),
  *           // Optional, staging only: Vercel "Protection Bypass for Automation" value.
  *           'vercel_protection_bypass' => getenv( 'SUPERLATIF_BRIDGE_STAGING_VERCEL_BYPASS' ),
+ *           // Sejoli product IDs whose orders are forwarded (1.2.2). Optional for
+ *           // a non-production client (absent = every product); REQUIRED for a
+ *           // production client, which otherwise delivers nothing.
+ *           'webhook_products'         => array( <pilot product ID from Sejoli admin> ),
  *       ),
  *   ) );
  *
@@ -32,11 +36,11 @@ defined( 'ABSPATH' ) || exit;
  * Valid configured clients, keyed by client ID. Invalid entries are dropped
  * (fail closed) and reported by name only - never with their values.
  *
- * `webhook_secret` / `vercel_protection_bypass` are optional (ADR-074). An
- * invalid one disables only commerce delivery for that client - sign-in keeps
- * working - and is reported by name, never by value.
+ * `webhook_secret` / `vercel_protection_bypass` / `webhook_products` are
+ * optional (ADR-074). An invalid one disables only commerce delivery for that
+ * client - sign-in keeps working - and is reported by name, never by value.
  *
- * @return array<string, array{secret: string, redirect_uri: string, environment: string, webhook_secret: ?string, vercel_protection_bypass: ?string}>
+ * @return array<string, array{secret: string, redirect_uri: string, environment: string, webhook_secret: ?string, vercel_protection_bypass: ?string, webhook_products: ?array<int, string>}>
  */
 function superlatif_bridge_clients(): array {
 	// wp-config.php cannot change mid-request: validate (and report) once.
@@ -63,6 +67,7 @@ function superlatif_bridge_clients(): array {
 			'environment'              => $client['environment'],
 			'webhook_secret'           => $webhook['webhook_secret'],
 			'vercel_protection_bypass' => $webhook['vercel_protection_bypass'],
+			'webhook_products'         => $webhook['webhook_products'],
 		);
 	}
 	return $clients;
@@ -71,12 +76,19 @@ function superlatif_bridge_clients(): array {
 /**
  * Validated commerce-delivery settings of an otherwise valid client.
  *
- * @return array{webhook_secret: ?string, vercel_protection_bypass: ?string}
+ * `webhook_products` (1.2.2) is the allowlist of Sejoli product IDs whose
+ * orders this client receives, normalized to decimal strings; null means
+ * "every product", which only a non-production client may use. A production
+ * client must name its products, so going live can never forward the whole
+ * shop by accident.
+ *
+ * @return array{webhook_secret: ?string, vercel_protection_bypass: ?string, webhook_products: ?array<int, string>}
  */
 function superlatif_bridge_webhook_settings( string $client_id, array $client ): array {
 	$none    = array(
 		'webhook_secret'           => null,
 		'vercel_protection_bypass' => null,
+		'webhook_products'         => null,
 	);
 	$secret  = $client['webhook_secret'] ?? null;
 	if ( null === $secret || false === $secret || '' === $secret ) {
@@ -98,6 +110,15 @@ function superlatif_bridge_webhook_settings( string $client_id, array $client ):
 	} else {
 		$bypass = null;
 	}
+	$products = null;
+	if ( null === $problem ) {
+		$parsed = superlatif_bridge_parse_webhook_products( $client['webhook_products'] ?? null, $client['environment'] );
+		if ( is_string( $parsed ) ) {
+			$problem = $parsed;
+		} else {
+			$products = $parsed;
+		}
+	}
 	if ( null !== $problem ) {
 		error_log( 'superlatif-app-bridge: commerce delivery disabled for client ' . $client_id . ': ' . $problem ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		return $none;
@@ -105,7 +126,36 @@ function superlatif_bridge_webhook_settings( string $client_id, array $client ):
 	return array(
 		'webhook_secret'           => $secret,
 		'vercel_protection_bypass' => $bypass,
+		'webhook_products'         => $products,
 	);
+}
+
+/**
+ * Parses a `webhook_products` setting. Returns the normalized list (decimal
+ * strings, in order), null for "every product", or a problem description.
+ *
+ * @param mixed $value Raw setting.
+ * @return array<int, string>|string|null
+ */
+function superlatif_bridge_parse_webhook_products( $value, string $environment ) {
+	if ( null === $value || false === $value ) {
+		return 'production' === $environment ? 'webhook_products is required for a production client' : null;
+	}
+	if ( ! is_array( $value ) || array() === $value ) {
+		return 'webhook_products must be a non-empty list of Sejoli product IDs';
+	}
+	$ids = array();
+	foreach ( $value as $item ) {
+		$id = is_int( $item ) && $item > 0 ? (string) $item : ( is_string( $item ) && 1 === preg_match( '/^[1-9][0-9]{0,19}$/', $item ) ? $item : null );
+		if ( null === $id ) {
+			return 'webhook_products contains an entry that is not a Sejoli product ID';
+		}
+		if ( in_array( $id, $ids, true ) ) {
+			return 'webhook_products lists a product twice';
+		}
+		$ids[] = $id;
+	}
+	return $ids;
 }
 
 /**
