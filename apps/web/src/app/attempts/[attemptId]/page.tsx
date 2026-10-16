@@ -63,6 +63,9 @@ export default async function AttemptPage({ params, searchParams }: PageProps) {
   }
 
   if (view.writerLease.state !== "held_here") {
+    // `expired` is usually this same device coming back after a pause, not a
+    // second device - say so instead of claiming the exam is open elsewhere.
+    const expired = view.writerLease.state === "expired";
     return (
       <main className="slf-page">
         <h1 className="slf-section-title">Lanjutkan di perangkat ini?</h1>
@@ -72,8 +75,12 @@ export default async function AttemptPage({ params, searchParams }: PageProps) {
           </p>
         ) : null}
         <EmptyState
-          title="Tryout sedang terbuka di tempat lain"
-          body="Untuk mencegah jawaban saling menimpa, hanya satu perangkat yang boleh menulis dalam satu waktu. Ambil alih untuk melanjutkan di sini - jawaban yang sudah tersimpan tetap aman."
+          title={expired ? "Sesi pengerjaan dijeda" : "Tryout sedang terbuka di tempat lain"}
+          body={
+            expired
+              ? "Tidak ada aktivitas dari perangkat mana pun selama beberapa menit, jadi penyimpanan jawaban dijeda. Waktu ujian tetap berjalan. Lanjutkan untuk kembali mengerjakan - jawaban yang sudah tersimpan tetap aman."
+              : "Untuk mencegah jawaban saling menimpa, hanya satu perangkat yang boleh menulis dalam satu waktu. Ambil alih untuk melanjutkan di sini - jawaban yang sudah tersimpan tetap aman."
+          }
         />
         <form action={takeoverLeaseAction}>
           <input type="hidden" name="attemptId" value={attemptId} />

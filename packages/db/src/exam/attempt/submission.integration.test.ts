@@ -58,6 +58,8 @@ import {
   saveAnswer,
   startOrResumeAttempt,
   submitAttempt,
+  takeoverWriterLease,
+  WriterLeaseTokenMismatchError,
   type SaveAnswerInput,
 } from "./attempt-service.ts";
 
@@ -508,6 +510,56 @@ describe("final submit - idempotent, snapshot-pinning", () => {
     const stored = await findSubmissionByAttemptId(handle.db, attemptId);
     expect(stored).not.toBeNull();
     expect(stored?.id).toBe(userResult.submission.id);
+  });
+
+  // The contract submitAttemptAction relies on: a learner who sat on the last
+  // question (or the confirmation page) longer than the 120s lease TTL is
+  // refused by submit alone, but the SAME device renewing its own token first
+  // submits normally - exactly what saveAnswerAction already does per save.
+  it("Idle learner: submit after the lease TTL is refused alone, and succeeds once the same device renews first", async () => {
+    const { attemptId, leaseToken } = await startedAttemptFor(studentId, "SUBMIT-IDLE");
+    const idleNow = new Date("2026-09-01T01:05:00Z"); // 5 min after start, lease issued at start
+    const trigger = {
+      kind: "user" as const,
+      userId: studentId,
+      mutationId: "20000000-0000-0000-0000-000000000010",
+      leaseToken,
+      expectedAttemptRevision: 0,
+    };
+
+    await expect(submitAttempt(handle.db, attemptId, trigger, idleNow)).rejects.toMatchObject({
+      name: "WriterLeaseRevokedError",
+    });
+    expect(await findSubmissionByAttemptId(handle.db, attemptId)).toBeNull();
+
+    await renewWriterLease(handle.db, studentId, attemptId, leaseToken, idleNow);
+    const result = await submitAttempt(handle.db, attemptId, trigger, idleNow);
+    expect(result.created).toBe(true);
+  });
+
+  it("Takeover: once another device takes over, the old device can neither renew nor submit", async () => {
+    const { attemptId, leaseToken } = await startedAttemptFor(studentId, "SUBMIT-TAKEN-OVER");
+    const later = new Date("2026-09-01T01:03:00Z");
+    await takeoverWriterLease(handle.db, studentId, attemptId, later);
+
+    await expect(renewWriterLease(handle.db, studentId, attemptId, leaseToken, later)).rejects.toBeInstanceOf(
+      WriterLeaseTokenMismatchError,
+    );
+    await expect(
+      submitAttempt(
+        handle.db,
+        attemptId,
+        {
+          kind: "user",
+          userId: studentId,
+          mutationId: "20000000-0000-0000-0000-000000000011",
+          leaseToken,
+          expectedAttemptRevision: 0,
+        },
+        later,
+      ),
+    ).rejects.toMatchObject({ name: "WriterLeaseRevokedError" });
+    expect(await findSubmissionByAttemptId(handle.db, attemptId)).toBeNull();
   });
 
   it("finalizeExpiredAttemptIfDue does nothing before the late-sync cutoff", async () => {

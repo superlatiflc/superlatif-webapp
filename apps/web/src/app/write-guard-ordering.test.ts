@@ -54,7 +54,8 @@ const GUARDED = [
   { action: "startAttemptAction", firstDbCall: /getDb\(\)|exam\.findExamBatchByCode/ },
   { action: "takeoverLeaseAction", firstDbCall: /exam\.takeoverWriterLease|getDb\(\)/ },
   { action: "saveAnswerAction", firstDbCall: /exam\.renewWriterLease|exam\.saveAnswer/ },
-  { action: "submitAttemptAction", firstDbCall: /exam\.submitAttempt/ },
+  { action: "submitAttemptAction", firstDbCall: /exam\.renewWriterLease|exam\.submitAttempt/ },
+  { action: "keepLeaseAliveAction", firstDbCall: /exam\.renewWriterLease|getDb\(\)/ },
 ] as const;
 
 function bodyOf(actionName: string): string {
@@ -100,6 +101,16 @@ describe("write kill switch runs before any mutation (P0-2)", () => {
     // submission; the guard preceding submitAttempt is what guarantees no
     // scoring job can be enqueued by a refused request.
     expect(guardAt).toBeLessThan(at(body, /drainScoringJob/));
+  });
+
+  it("submitAttemptAction renews its own lease after the guard and before submitting", () => {
+    // An idle learner's lease outlives neither the last question nor the
+    // confirmation page; submit must renew first, as every save already does.
+    const body = bodyOf("submitAttemptAction");
+    const guardAt = at(body, /examWriteBlockReason\(\)/);
+    const renewAt = at(body, /exam\.renewWriterLease/);
+    expect(renewAt).toBeGreaterThan(guardAt);
+    expect(renewAt).toBeLessThan(at(body, /exam\.submitAttempt/));
   });
 });
 

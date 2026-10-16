@@ -220,6 +220,36 @@ export async function saveAnswerAction(input: {
   }
 }
 
+export type KeepLeaseAliveResult =
+  { readonly ok: true } | { readonly ok: false; readonly code: "lease_lost" | "writes_disabled" };
+
+/**
+ * Heartbeat from an open attempt player (dok 16 §7: "Lease diperbarui saat
+ * client aktif"). Without it, a learner reading one question for longer than
+ * the 120s TTL loses the lease without having done anything wrong. Renews in
+ * place only for the device still holding the matching token; it never
+ * reclaims a lease another device took over. Writes nothing but the lease
+ * expiry, and nothing at all while writes are frozen.
+ */
+export async function keepLeaseAliveAction(input: {
+  readonly attemptId: string;
+}): Promise<KeepLeaseAliveResult> {
+  const userId = await requireUserId();
+  if (!examWritesPermitted()) return { ok: false, code: "writes_disabled" };
+
+  const leaseToken = await readLeaseToken(input.attemptId);
+  if (!leaseToken) return { ok: false, code: "lease_lost" };
+  try {
+    await exam.renewWriterLease(getDb(), userId, input.attemptId, leaseToken, new Date());
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof Error && error.name === "WriterLeaseTokenMismatchError") {
+      return { ok: false, code: "lease_lost" };
+    }
+    throw error;
+  }
+}
+
 function classifySaveError(error: unknown): "lease_lost" | "deadline_passed" | "conflict" | "invalid" {
   const name = error instanceof Error ? error.name : "";
   if (name === "WriterLeaseRequiredError" || name === "WriterLeaseRevokedError") return "lease_lost";
@@ -286,6 +316,12 @@ export async function submitAttemptAction(formData: FormData): Promise<void> {
   }
 
   try {
+    // Renew BEFORE submitting, exactly as saveAnswerAction does before a
+    // save: a learner who spent longer than the 120s lease TTL on the last
+    // question or on this confirmation page still holds the matching token,
+    // and must not be told the exam is open elsewhere. A token that no longer
+    // matches (another device took over) still throws and maps to lease_lost.
+    await exam.renewWriterLease(db, userId, attemptId, leaseToken, now);
     await exam.submitAttempt(
       db,
       attemptId,
@@ -300,7 +336,11 @@ export async function submitAttemptAction(formData: FormData): Promise<void> {
     );
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
-    if (name === "WriterLeaseRequiredError" || name === "WriterLeaseRevokedError") {
+    if (
+      name === "WriterLeaseRequiredError" ||
+      name === "WriterLeaseRevokedError" ||
+      name === "WriterLeaseTokenMismatchError"
+    ) {
       redirect(`/attempts/${attemptId}/submit?error=lease_lost`);
     }
     if (name === "AttemptNotSubmittableError" || name === "SubmitRevisionConflictError") {

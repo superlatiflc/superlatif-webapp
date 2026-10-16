@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerableQuestion, CountdownTimer } from "@superlatif/ui";
-import { saveAnswerAction, type SaveAnswerActionResult } from "../actions.ts";
+import { keepLeaseAliveAction, saveAnswerAction, type SaveAnswerActionResult } from "../actions.ts";
+import {
+  acknowledge,
+  choose,
+  displayedChoice,
+  initialSlot,
+  isSaving,
+  reject,
+  type AnswerSlot,
+  type SaveRequest,
+} from "./answer-save-queue.ts";
 
 // Production attempt player.
 //
@@ -20,7 +30,12 @@ import { saveAnswerAction, type SaveAnswerActionResult } from "../actions.ts";
 //     is a RENDERING cache of what the server acknowledged, never the
 //     source of truth.
 //   - `expectedRevision` per instance is tracked so the server can detect a
-//     stale write (another tab) instead of silently overwriting.
+//     stale write (another tab) instead of silently overwriting. Saves for
+//     one question are sequenced by answer-save-queue.ts: one in flight at a
+//     time, the learner's latest choice wins, and the revision sent is
+//     always the one the server last acknowledged.
+//   - A heartbeat keeps this device's writer lease alive while the page is
+//     open, so reading one question for a few minutes does not lose it.
 //   - Submission carries no score: the server scores from its own frozen
 //     snapshot.
 
@@ -50,6 +65,12 @@ export interface AttemptRunnerProps {
 }
 
 type SaveFailureCode = Extract<SaveAnswerActionResult, { ok: false }>["code"];
+
+/** Well under the 120s lease TTL, so one missed beat does not lose the lease. */
+const LEASE_HEARTBEAT_MS = 45_000;
+
+const UNREACHABLE_MESSAGE =
+  "Jawaban ini belum tersimpan karena server tidak dapat dihubungi. Periksa koneksi, lalu pilih jawabanmu lagi.";
 
 function messageFor(code: SaveFailureCode): string {
   switch (code) {
@@ -84,7 +105,12 @@ export function AttemptRunner({
   initialAttemptRevision,
   canWrite,
 }: AttemptRunnerProps) {
-  const [answers, setAnswers] = useState(initialAnswers);
+  // The ref is the source of truth for the async save chain (no stale
+  // closures); the state copy only drives rendering.
+  const slotsRef = useRef<Record<string, AnswerSlot>>(
+    Object.fromEntries(instances.map((i) => [i.instanceId, initialSlot(initialAnswers[i.instanceId])])),
+  );
+  const [slots, setSlots] = useState(slotsRef.current);
   // Tracked so a save's acknowledged attempt revision is visible to this
   // component; the SUBMIT path deliberately re-reads the authoritative
   // revision server-side rather than trusting anything echoed from here.
@@ -92,51 +118,82 @@ export function AttemptRunner({
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
   const current = instances[currentIndex]!;
-  const answeredCount = useMemo(
-    () => Object.values(answers).filter((entry) => entry.optionCode != null).length,
-    [answers],
+  const slotValues = Object.values(slots);
+  const savedCount = slotValues.filter((slot) => slot.acked.optionCode != null).length;
+  const saving = slotValues.some(isSaving);
+
+  const putSlot = useCallback((instanceId: string, slot: AnswerSlot) => {
+    slotsRef.current = { ...slotsRef.current, [instanceId]: slot };
+    setSlots(slotsRef.current);
+  }, []);
+
+  const send = useCallback(
+    async (instanceId: string, request: SaveRequest): Promise<void> => {
+      let result: SaveAnswerActionResult;
+      try {
+        result = await saveAnswerAction({
+          attemptId,
+          instanceId,
+          optionCode: request.optionCode,
+          expectedRevision: request.expectedRevision,
+          // A fresh id per send: each one is a genuinely new mutation.
+          clientMutationId: crypto.randomUUID(),
+        });
+      } catch {
+        putSlot(instanceId, reject(slotsRef.current[instanceId]!));
+        setNotice(UNREACHABLE_MESSAGE);
+        return;
+      }
+      if (!result.ok) {
+        // Back to what the server holds - an unacknowledged answer is never
+        // left looking saved.
+        putSlot(instanceId, reject(slotsRef.current[instanceId]!));
+        setNotice(messageFor(result.code));
+        return;
+      }
+      setAttemptRevision(result.attemptRevision);
+      const [next, followUp] = acknowledge(slotsRef.current[instanceId]!, result.revision);
+      putSlot(instanceId, next);
+      if (followUp) await send(instanceId, followUp);
+    },
+    [attemptId, putSlot],
   );
 
   const select = useCallback(
     (instanceId: string, optionCode: string) => {
-      const previous = answers[instanceId];
-      // Optimistic render, reconciled against the server's acknowledged
-      // revision below. If the server refuses, the previous value is
-      // restored - an unacknowledged answer is never left looking saved.
-      setAnswers((state) => ({
-        ...state,
-        [instanceId]: { optionCode, revision: previous?.revision ?? 0 },
-      }));
       setNotice(null);
-
-      startTransition(async () => {
-        const result = await saveAnswerAction({
-          attemptId,
-          instanceId,
-          optionCode,
-          expectedRevision: previous?.revision ?? 0,
-          // A fresh id per user action: a retry of the SAME logical write
-          // would reuse it and be deduplicated server-side, while a new
-          // choice is genuinely a new mutation.
-          clientMutationId: crypto.randomUUID(),
-        });
-        if (result.ok) {
-          setAnswers((state) => ({ ...state, [instanceId]: { optionCode, revision: result.revision } }));
-          setAttemptRevision(result.attemptRevision);
-        } else {
-          setAnswers((state) => ({
-            ...state,
-            [instanceId]: previous ?? { optionCode: null, revision: 0 },
-          }));
-          setNotice(messageFor(result.code));
-        }
-      });
+      const [next, request] = choose(slotsRef.current[instanceId] ?? initialSlot(), optionCode);
+      putSlot(instanceId, next);
+      if (request) void send(instanceId, request);
     },
-    [answers, attemptId],
+    [putSlot, send],
   );
+
+  // Writer-lease heartbeat while the page is visible, plus one beat when the
+  // learner comes back to the tab.
+  useEffect(() => {
+    if (!canWrite) return;
+    let stopped = false;
+    const beat = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      try {
+        const result = await keepLeaseAliveAction({ attemptId });
+        if (!stopped && !result.ok && result.code === "lease_lost") setNotice(messageFor("lease_lost"));
+      } catch {
+        // A missed beat is harmless; the next save or beat renews the lease.
+      }
+    };
+    const timer = window.setInterval(beat, LEASE_HEARTBEAT_MS);
+    const onVisible = () => void beat();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [attemptId, canWrite]);
 
   return (
     <main className="slf-page">
@@ -158,7 +215,7 @@ export function AttemptRunner({
           <li key={instance.instanceId}>
             <button
               type="button"
-              className={`slf-question-navigator__item${index === currentIndex ? " slf-question-navigator__item--current" : ""}${answers[instance.instanceId]?.optionCode ? " slf-question-navigator__item--answered" : ""}${flagged[instance.instanceId] ? " slf-question-navigator__item--flagged" : ""}`}
+              className={`slf-question-navigator__item${index === currentIndex ? " slf-question-navigator__item--current" : ""}${slots[instance.instanceId] && displayedChoice(slots[instance.instanceId]!) ? " slf-question-navigator__item--answered" : ""}${flagged[instance.instanceId] ? " slf-question-navigator__item--flagged" : ""}`}
               aria-current={index === currentIndex ? "true" : undefined}
               onClick={() => setCurrentIndex(index)}
             >
@@ -175,7 +232,7 @@ export function AttemptRunner({
         totalQuestions={instances.length}
         stem={current.stem}
         options={current.options}
-        selectedOptionCode={answers[current.instanceId]?.optionCode ?? null}
+        selectedOptionCode={slots[current.instanceId] ? displayedChoice(slots[current.instanceId]!) : null}
         onSelect={(optionCode) => canWrite && select(current.instanceId, optionCode)}
         flagged={flagged[current.instanceId] ?? false}
         onToggleFlag={() =>
@@ -184,7 +241,7 @@ export function AttemptRunner({
       />
 
       <p className="slf-empty-state__body" aria-live="polite">
-        {pending ? "Menyimpan…" : `${answeredCount} dari ${instances.length} soal terjawab dan tersimpan.`}
+        {saving ? "Menyimpan…" : `${savedCount} dari ${instances.length} soal terjawab dan tersimpan.`}
       </p>
 
       <div className="slf-player-footer">
